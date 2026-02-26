@@ -61,12 +61,43 @@ def _try_repair_json(text: str) -> dict:
         return json.loads(repairable)
 
 
-def generate_question(topic: str, difficulty_label: str, asked_questions: list[str]) -> dict:
+# Per-proficiency calibration context for the prompt
+PROFICIENCY_CONTEXT = {
+    "beginner": (
+        "The student is a BEGINNER. "
+        "Easy = foundational recall (definitions, basic syntax). "
+        "Medium = simple application of one concept. "
+        "Hard = slightly more involved scenario still accessible to a beginner."
+    ),
+    "intermediate": (
+        "The student is INTERMEDIATE. "
+        "Easy = comfortable recall of established concepts. "
+        "Medium = multi-step application or comparison between concepts. "
+        "Hard = edge-cases, nuanced distinctions, or synthesis of two concepts."
+    ),
+    "advanced": (
+        "The student is ADVANCED / EXPERT level. "
+        "Easy = solid conceptual recall that experts handle quickly. "
+        "Medium = tricky edge-cases or deep implementation details. "
+        "Hard = expert-level, real-world scenarios requiring in-depth knowledge."
+    ),
+}
+
+
+def generate_question(
+    topic: str,
+    difficulty_label: str,
+    asked_questions: list[str],
+    proficiency: str = "intermediate",
+) -> dict:
     avoid = ""
     if asked_questions:
         avoid = "\nDo NOT repeat these questions:\n" + "\n".join(f"- {q}" for q in asked_questions)
 
+    prof_ctx = PROFICIENCY_CONTEXT.get(proficiency.lower(), PROFICIENCY_CONTEXT["intermediate"])
+
     user_msg = (
+        f"{prof_ctx}\n\n"
         f"Generate a {difficulty_label} difficulty MCQ about: {topic}.{avoid}\n"
         "Return ONLY the JSON object. Keep the explanation under 30 words."
     )
@@ -80,7 +111,7 @@ def generate_question(topic: str, difficulty_label: str, asked_questions: list[s
             {"role": "user",   "content": user_msg},
         ],
         temperature=1,
-        max_completion_tokens=1500,   # was 600 — hard questions truncated the JSON
+        max_completion_tokens=1500,
         top_p=1,
         reasoning_effort="medium",
         stream=False,
@@ -120,14 +151,13 @@ def _persist_and_return(topic: str, difficulty_label: str, q: dict, asked: list[
 # ═══════════════════════════════════════════════════════════════════════════════
 @app.route("/start", methods=["POST"])
 def start_quiz():
-    data = request.get_json()
-    topic = data.get("topic", "General Knowledge")
-    user_id = data.get("userId", "anonymous")
+    data        = request.get_json()
+    topic       = data.get("topic", "General Knowledge")
+    proficiency = data.get("proficiency", "intermediate")
+    user_id     = data.get("userId", "anonymous")
 
-    # Ensure user row exists at medium difficulty (5.0)
     get_or_create_user(user_id)
-
-    q = generate_question(topic, "medium", [])
+    q = generate_question(topic, "medium", [], proficiency)
     return jsonify(_persist_and_return(topic, "medium", q, []))
 
 
@@ -136,28 +166,25 @@ def start_quiz():
 # ═══════════════════════════════════════════════════════════════════════════════
 @app.route("/next", methods=["POST"])
 def next_question():
-    data = request.get_json()
-    topic            = data.get("topic", "General Knowledge")
-    time_ms          = data.get("time_taken_ms", 0)
-    is_correct       = data.get("is_correct", False)
-    current_diff     = data.get("current_difficulty", "medium")
-    asked            = data.get("asked_questions", [])
+    data            = request.get_json()
+    topic           = data.get("topic", "General Knowledge")
+    time_ms         = data.get("time_taken_ms", 0)
+    is_correct      = data.get("is_correct", False)
+    current_diff    = data.get("current_difficulty", "medium")
+    asked           = data.get("asked_questions", [])
+    proficiency     = data.get("proficiency", "intermediate")
 
-    levels = ["easy", "medium", "hard"]
-    idx = levels.index(current_diff)
+    levels   = ["easy", "medium", "hard"]
+    idx      = levels.index(current_diff)
     expected = EXPECTED_TIME_MS.get(current_diff, 25_000)
 
     if not is_correct:
-        # Wrong answer → always drop one level (more practice needed)
         idx = max(idx - 1, 0)
     elif time_ms <= expected:
-        # Correct AND answered within expected time → go harder
         idx = min(idx + 1, 2)
-    # else: correct but slow → stay at the same level (no change to idx)
 
     new_label = levels[idx]
-
-    q = generate_question(topic, new_label, asked)
+    q = generate_question(topic, new_label, asked, proficiency)
     return jsonify(_persist_and_return(topic, new_label, q, asked))
 
 

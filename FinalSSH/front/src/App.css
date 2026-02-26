@@ -943,3 +943,264 @@ body {
 .btn.secondary:hover {
   background: #e0e7ff;
 }
+
+/* ── Animated SVG line draw ─────────────────────────────── */
+@keyframes lineDraw {
+  from {
+    stroke-dashoffset: 800;
+  }
+
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.an-line-draw {
+  stroke-dasharray: 800;
+  animation: lineDraw 1.1s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+/* ── Trend insight label ─────────────────────────────────── */
+.trend-insight {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.78rem;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 3px 10px;
+  margin-bottom: 8px;
+}
+
+.trend-up {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.trend-down {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.trend-flat {
+  background: #f3f4f6;
+  color: #555;
+}
+
+/* ── Stat card icon ──────────────────────────────────────── */
+.an-stat-icon {
+  font-size: 1.1rem;
+  margin-bottom: 2px;
+}
+
+/* ── Performance badge ───────────────────────────────────── */
+.performance-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.85rem;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 5px 16px;
+  letter-spacing: 0.02em;
+  margin-bottom: 4px;
+}
+
+.badge-excellent {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.badge-good {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.badge-fair {
+  background: #fef9c3;
+  color: #854d0e;
+}
+
+.badge-poor {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+/* ── Sort buttons ─────────────────────────────────────────── */
+.an-card-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.an-sort-btns {
+  display: flex;
+  gap: 4px;
+}
+
+.an-sort-btn {
+  background: #f4f6f9;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 7px;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #666;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.an-sort-btn:hover {
+  border-color: #6366f1;
+  color: #6366f1;
+}
+
+.an-sort-btn.active {
+  background: #6366f1;
+  border-color: #6366f1;
+  color: #fff;
+}
+
+/* ── Chart legend ─────────────────────────────────────────── */
+.chart-legend {
+  display: flex;
+  gap: 14px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.legend-item {
+  font-size: 0.75rem;
+  color: #777;
+}
+
+.correct-legend {
+  color: #22c55e;
+  font-weight: 600;
+}
+
+.wrong-legend {
+  color: #ef4444;
+  font-weight: 600;
+}
+
+/* ── Difficulty bar under circle ─────────────────────────── */
+.an-diff-bar-wrap {
+  width: 100%;
+  height: 5px;
+  background: #f0f0f0;
+  border-radius: 99px;
+  overflow: hidden;
+  margin-bottom: 2px;
+}
+
+.an-diff-bar-fill {
+  height: 100%;
+  border-radius: 99px;
+  transition: width 0.7s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ── Empty state with icon ───────────────────────────────── */
+.an-empty-icon {
+  font-size: 3rem;
+  margin-bottom: 12px;
+}
+
+.an-empty-sub {
+  font-size: 0.82rem;
+  color: #ccc;
+  margin-top: 4px;
+}
+
+/* ── Card fade-in on mount ───────────────────────────────── */
+@keyframes cardIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.an-card {
+  animation: cardIn 0.3s ease forwards;
+}
+
+.an-overview-row {
+  animation: cardIn 0.3s ease forwards;
+}
+
+/* ── Proficiency selector ─────────────────────────────────── */
+.proficiency-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #888;
+  margin-bottom: 8px;
+  margin-top: 4px;
+}
+
+.proficiency-group {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-bottom: 16px;
+}
+
+.prof-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 14px;
+  background: #fafafa;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 10px;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s, transform 0.1s;
+}
+
+.prof-btn:hover {
+  border-color: #6366f1;
+  background: #f5f5ff;
+  transform: translateY(-1px);
+}
+
+.prof-btn.active {
+  border-color: #6366f1;
+  background: #eef0ff;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
+}
+
+.prof-icon {
+  font-size: 1.3rem;
+  flex-shrink: 0;
+}
+
+.prof-name {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #111;
+  flex-shrink: 0;
+  min-width: 82px;
+}
+
+.prof-btn.active .prof-name {
+  color: #4f46e5;
+}
+
+.prof-desc {
+  font-size: 0.78rem;
+  color: #888;
+  line-height: 1.4;
+}
+
+.prof-btn.active .prof-desc {
+  color: #6366f1;
+}
