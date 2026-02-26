@@ -158,12 +158,26 @@ def _generate_for_level(level: int, topic: str, difficulty: str,
         return {**q, "type": "open", "level": 2, "difficulty": difficulty}
 
     # ── Level 3: Branching Decision Tree ──────────────────────────────────────
-    q = level3_agent.call(
-        "generate_scenario",
-        topic=topic, difficulty=difficulty,
-        proficiency=proficiency, asked_questions=asked,
-    )
-    return {**q, "type": "scenario", "level": 3, "difficulty": difficulty}
+    try:
+        q = level3_agent.call(
+            "generate_scenario",
+            topic=topic, difficulty=difficulty,
+            proficiency=proficiency, asked_questions=asked,
+        )
+        # Sanity-check the returned structure
+        if not q.get("scenario") or not q.get("decision_points"):
+            raise ValueError("Scenario response is missing required fields.")
+        return {**q, "type": "scenario", "level": 3, "difficulty": difficulty}
+    except Exception as e:
+        logging.error("L3 scenario generation failed (%s). Falling back to L2.", e)
+        # Graceful fallback: give an L2 open question instead
+        q = level2_agent.call(
+            "generate_why_question",
+            topic=topic, difficulty=difficulty,
+            proficiency=proficiency, asked_questions=asked,
+        )
+        return {**q, "type": "open", "level": 2, "difficulty": difficulty,
+                "_fallback": True}
 
 
 def _persist_and_return(topic: str, difficulty_label: str, q: dict, asked: list) -> dict:
@@ -220,17 +234,21 @@ def adaptive_next():
     recent_scores = list(data.get("recent_score_pcts", []))
     asked         = data.get("asked_questions", [])
 
-    recent_scores.append(last_score)
-    new_level = _adapt_level(cur_level, recent_scores)
+    try:
+        recent_scores.append(last_score)
+        new_level = _adapt_level(cur_level, recent_scores)
 
-    if new_level != cur_level:
-        new_diff = "medium"   # reset on level transition
-    else:
-        new_diff = _adapt_difficulty(cur_level, cur_diff, last_score >= 60, time_ms)
+        if new_level != cur_level:
+            new_diff = "medium"   # reset on level transition
+        else:
+            new_diff = _adapt_difficulty(cur_level, cur_diff, last_score >= 60, time_ms)
 
-    q = _generate_for_level(new_level, topic, new_diff, proficiency, asked)
-    return jsonify({"question": q, "new_level": new_level,
-                    "new_difficulty": new_diff, "recent_scores": recent_scores})
+        q = _generate_for_level(new_level, topic, new_diff, proficiency, asked)
+        return jsonify({"question": q, "new_level": new_level,
+                        "new_difficulty": new_diff, "recent_scores": recent_scores})
+    except Exception as e:
+        logging.exception("adaptive_next failed: %s", e)
+        return jsonify({"error": str(e), "detail": "Failed to generate next question"}), 500
 
 
 # ══════════════════════════════════════════════════════════════════════════════

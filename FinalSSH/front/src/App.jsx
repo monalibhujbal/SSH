@@ -412,9 +412,13 @@ export default function App() {
   const [screen, setScreen] = useState("start");
   const [topic, setTopic] = useState("");
   const [proficiency, setProficiency] = useState("intermediate");
+  const [numQuestions, setNumQuestions] = useState(5);
   const [loading, setLoading] = useState(false);
   const [sessions, setSessions] = useState(loadSessions);
   const [reviewSession, setReview] = useState(null);
+
+  // Re-sync sidebar sessions every time the user navigates to a new screen
+  useEffect(() => { setSessions(loadSessions()); }, [screen]);
 
   // Adaptive quiz core
   const [qIndex, setQIndex] = useState(0);
@@ -445,6 +449,7 @@ export default function App() {
   // Results
   const [feedback, setFeedback] = useState("");
   const [feedbackLoading, setFBLoad] = useState(false);
+  const [quizError, setQuizError] = useState(null);    // non-null shows error in quiz card
 
   // ── Reset all sub-state ─────────────────────────────────────
   function resetSubState() {
@@ -457,54 +462,78 @@ export default function App() {
   async function startQuiz() {
     if (!topic.trim()) return;
     setLoading(true);
+    setQuizError(null);
     setHistory([]); setRecentScores([]); setAsked([]); setQIndex(1);
     setCurrentLevel(1); setCurrentDiff("medium");
     resetSubState(); setFeedback("");
 
-    const data = await fetch(`${API}/adaptive/start`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ topic, proficiency }),
-    }).then(r => r.json());
+    try {
+      const data = await fetch(`${API}/adaptive/start`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ topic, proficiency }),
+      }).then(r => r.json());
 
-    setCurrentQ(data.question);
-    setAsked([data.question.scenario || data.question.question]);
-    setLoading(false);
-    setScreen("adaptive-quiz");
-    startTimeRef.current = Date.now();
+      setCurrentQ(data.question);
+      setAsked([data.question.scenario || data.question.question]);
+      setScreen("adaptive-quiz");
+      startTimeRef.current = Date.now();
+    } catch (err) {
+      setQuizError("Failed to start quiz. Please check the server is running.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   // ── Fetch next adaptive question ────────────────────────────
   async function fetchNextQuestion(newHistory, newScores, lastScorePct, timeTaken) {
     setLoading(true);
+    setQuizError(null);
     const asked = newHistory.map(h => h.question).filter(Boolean);
-    const data = await fetch(`${API}/adaptive/next`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        topic, proficiency,
-        current_level: currentLevel,
-        current_difficulty: currentDiff,
-        last_score_pct: lastScorePct,
-        time_taken_ms: timeTaken,
-        recent_score_pcts: newScores,
-        asked_questions: asked,
-      }),
-    }).then(r => r.json());
+    try {
+      const resp = await fetch(`${API}/adaptive/next`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          topic, proficiency,
+          current_level: currentLevel,
+          current_difficulty: currentDiff,
+          last_score_pct: lastScorePct,
+          time_taken_ms: timeTaken,
+          recent_score_pcts: newScores,
+          asked_questions: asked,
+        }),
+      });
 
-    setCurrentQ(data.question);
-    setCurrentLevel(data.new_level);
-    setCurrentDiff(data.new_difficulty);
-    setAsked([...asked, data.question.scenario || data.question.question]);
-    setQIndex(i => i + 1);
-    resetSubState();
-    setLoading(false);
-    startTimeRef.current = Date.now();
+      // Always parse JSON — server now always returns JSON even on errors
+      const data = await resp.json();
+
+      if (!resp.ok || data.error) {
+        throw new Error(data.detail || data.error || `Server error ${resp.status}`);
+      }
+
+      if (!data.question) {
+        throw new Error("Server returned an empty question. Please try again.");
+      }
+
+      setCurrentQ(data.question);
+      setCurrentLevel(data.new_level);
+      setCurrentDiff(data.new_difficulty);
+      setAsked([...asked, data.question.scenario || data.question.question]);
+      setQIndex(i => i + 1);
+      resetSubState();
+      startTimeRef.current = Date.now();
+    } catch (err) {
+      console.error("fetchNextQuestion failed:", err);
+      setQuizError(err.message || "Failed to generate next question. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   // ── Finish quiz ─────────────────────────────────────────────
   async function finishQuiz(finalHistory) {
     const score = finalHistory.filter(h => h.isCorrect || (h.score >= (h.max_score || 10) * 0.6)).length;
     const session = {
-      topic, proficiency, level: "adaptive", score, total: TOTAL_QUESTIONS,
+      topic, proficiency, level: "adaptive", score, total: numQuestions,
       date: new Date().toLocaleDateString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }),
       history: finalHistory, feedback: "",
     };
@@ -535,7 +564,8 @@ export default function App() {
     setHistory(newHistory);
     const newScores = [...recentScores, scorePct];
     setRecentScores(newScores);
-    if (qIndex >= TOTAL_QUESTIONS) { finishQuiz(newHistory); return; }
+    if (qIndex >= numQuestions) { finishQuiz(newHistory); return; }
+
     await fetchNextQuestion(newHistory, newScores, scorePct, timeTaken);
   }
 
@@ -565,7 +595,8 @@ export default function App() {
     setHistory(newHistory);
     const newScores = [...recentScores, scorePct];
     setRecentScores(newScores);
-    if (qIndex >= TOTAL_QUESTIONS) { finishQuiz(newHistory); return; }
+    if (qIndex >= numQuestions) { finishQuiz(newHistory); return; }
+
     await fetchNextQuestion(newHistory, newScores, scorePct, timeTaken);
   }
 
@@ -612,14 +643,16 @@ export default function App() {
     setHistory(newHistory);
     const newScores = [...recentScores, scorePct];
     setRecentScores(newScores);
-    if (qIndex >= TOTAL_QUESTIONS) { finishQuiz(newHistory); return; }
+    if (qIndex >= numQuestions) { finishQuiz(newHistory); return; }
+
     await fetchNextQuestion(newHistory, newScores, scorePct, timeTaken);
   }
 
   function restart() {
+    setSessions(loadSessions());   // always refresh sidebar on restart
     setScreen("start"); setTopic(""); setHistory([]); setFeedback("");
     setRecentScores([]); setAsked([]); setCurrentQ(null);
-    resetSubState();
+    resetSubState(); setQuizError(null);
   }
 
   const isMCQ = currentQ?.type === "mcq";
@@ -665,6 +698,16 @@ export default function App() {
               <div className="adaptive-level-row gray"><span>Drop back if avg &lt; 35%</span></div>
             </div>
 
+            <div className="num-q-row">
+              <label className="num-q-label">Number of Questions</label>
+              <div className="num-q-stepper">
+                <button className="num-q-btn" onClick={() => setNumQuestions(n => Math.max(3, n - 1))} disabled={numQuestions <= 3}>−</button>
+                <span className="num-q-val">{numQuestions}</span>
+                <button className="num-q-btn" onClick={() => setNumQuestions(n => Math.min(20, n + 1))} disabled={numQuestions >= 20}>+</button>
+              </div>
+              <span className="num-q-hint">min 3 · max 20</span>
+            </div>
+
             <button className="btn primary" onClick={startQuiz} disabled={loading || !topic.trim()}>
               {loading ? "Loading…" : "Start Adaptive Quiz →"}
             </button>
@@ -676,13 +719,20 @@ export default function App() {
           <div className={`card quiz-card ${isScenario ? "scenario-card" : isOpen ? "open-quiz-card" : ""}`}>
             <LevelProgressBar currentLevel={currentLevel} recentScores={recentScores} />
             <div className="quiz-header">
-              <span className="q-counter">Q {qIndex} / {TOTAL_QUESTIONS}</span>
+              <span className="q-counter">Q {qIndex} / {numQuestions}</span>
               {!isScenario && <span className="diff-pill" style={{ background: DIFF_COL[currentDiff] }}>{currentDiff}</span>}
               <span className="level-chip" style={{ background: levelMeta.color }}>{levelMeta.tag}</span>
             </div>
 
             {loading ? (
               <div className="loading-state"><div className="spinner" /><p>Generating {isScenario ? "scenario" : "question"}…</p></div>
+            ) : quizError ? (
+              <div className="quiz-error-box">
+                <div className="quiz-error-icon">⚠️</div>
+                <p className="quiz-error-msg">{quizError}</p>
+                <button className="btn primary" onClick={() => setQuizError(null)}>Retry</button>
+                <button className="btn secondary" onClick={restart}>Start Over</button>
+              </div>
             ) : currentQ ? (
 
               /* ── L1: MCQ ── */

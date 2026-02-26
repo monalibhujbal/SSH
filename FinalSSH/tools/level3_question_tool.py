@@ -139,9 +139,9 @@ def _generate(groq_client, topic: str, difficulty: str,
             {"role": "user",   "content": user_msg},
         ],
         temperature=1,
-        max_completion_tokens=2000,
+        max_completion_tokens=2500,
         top_p=1,
-        reasoning_effort="high",   # Higher reasoning for complex scenario design
+        reasoning_effort="medium",
         stream=False,
         stop=None,
     )
@@ -151,7 +151,15 @@ def _generate(groq_client, topic: str, difficulty: str,
         text = text.split("```")[1].lstrip("json").strip()
     if not text:
         raise ValueError("Groq returned empty response for L3 scenario.")
-    return repair_json(text)
+    result = repair_json(text)
+    # Validate required structure
+    if not result.get("scenario"):
+        raise ValueError("L3 response missing 'scenario' field")
+    if not result.get("decision_points"):
+        raise ValueError("L3 response missing 'decision_points' array")
+    if not isinstance(result["decision_points"], list) or len(result["decision_points"]) == 0:
+        raise ValueError("L3 decision_points must be a non-empty array")
+    return result
 
 
 def create_level3_question_tool(groq_client) -> Tool:

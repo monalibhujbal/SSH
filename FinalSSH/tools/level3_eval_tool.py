@@ -149,7 +149,7 @@ def _evaluate(groq_client, scenario: str, decision_points: list[dict],
         temperature=0.7,
         max_completion_tokens=1200,
         top_p=1,
-        reasoning_effort="high",   # High reasoning for holistic consistency assessment
+        reasoning_effort="medium",
         stream=False,
         stop=None,
     )
