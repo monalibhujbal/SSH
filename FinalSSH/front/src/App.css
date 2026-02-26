@@ -1204,3 +1204,561 @@ body {
 .prof-btn.active .prof-desc {
   color: #6366f1;
 }
+
+/* ── Level selector variant ──────────────────────────────── */
+.level-btn {
+  border-left: 3px solid transparent;
+}
+
+.level-btn.active {
+  border-left-color: #6366f1;
+}
+
+/* ── Level chip / tag ─────────────────────────────────────── */
+.level-chip {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #fff;
+  background: #6366f1;
+  border-radius: 6px;
+  padding: 2px 8px;
+  margin-left: auto;
+}
+
+.level-tag {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #6366f1;
+  background: #eef0ff;
+  border-radius: 4px;
+  padding: 1px 5px;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+.level-badge-result {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #6366f1;
+  margin-bottom: 8px;
+  background: #eef0ff;
+  border-radius: 20px;
+  padding: 4px 14px;
+  display: inline-block;
+}
+
+/* ── Open quiz card ───────────────────────────────────────── */
+.open-quiz-card {
+  max-width: 720px;
+}
+
+.q-context {
+  background: #f0f9ff;
+  border-left: 3px solid #6366f1;
+  border-radius: 0 6px 6px 0;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  color: #374151;
+  margin-bottom: 10px;
+}
+
+.hint-toggle {
+  background: none;
+  border: 1.5px dashed #d1d5db;
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 0.82rem;
+  color: #6b7280;
+  cursor: pointer;
+  margin-bottom: 8px;
+  transition: border-color 0.15s;
+}
+
+.hint-toggle:hover {
+  border-color: #6366f1;
+  color: #6366f1;
+}
+
+.hint-box {
+  background: #fffbeb;
+  border: 1.5px solid #fde68a;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 0.85rem;
+  color: #78350f;
+  margin-bottom: 10px;
+}
+
+.open-answer-box {
+  width: 100%;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 0.92rem;
+  font-family: inherit;
+  color: #111;
+  background: #fafafa;
+  resize: vertical;
+  transition: border-color 0.15s;
+  margin-bottom: 4px;
+}
+
+.open-answer-box:focus {
+  outline: none;
+  border-color: #6366f1;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.08);
+}
+
+.open-answer-meta {
+  font-size: 0.72rem;
+  color: #bbb;
+  text-align: right;
+  margin-bottom: 12px;
+}
+
+/* ── Evaluation Panel ─────────────────────────────────────── */
+.eval-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  animation: cardIn 0.35s ease forwards;
+}
+
+.eval-score-row {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  background: #f8f9ff;
+  border: 1.5px solid #e0e4ff;
+  border-radius: 14px;
+  padding: 16px 20px;
+}
+
+.eval-donut {
+  flex-shrink: 0;
+}
+
+.eval-grade-badge {
+  display: inline-block;
+  font-size: 0.88rem;
+  font-weight: 800;
+  border-radius: 999px;
+  padding: 4px 14px;
+  margin-bottom: 6px;
+}
+
+.eval-feedback {
+  font-size: 0.88rem;
+  color: #374151;
+  line-height: 1.55;
+}
+
+.eval-section {}
+
+.eval-section-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #6b7280;
+  margin-bottom: 6px;
+}
+
+.eval-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.eval-list li {
+  font-size: 0.85rem;
+  padding: 6px 10px;
+  border-radius: 7px;
+  line-height: 1.4;
+}
+
+.correct-list li {
+  background: #f0fdf4;
+  color: #15803d;
+  border-left: 3px solid #22c55e;
+}
+
+.missing-list li {
+  background: #fef2f2;
+  color: #b91c1c;
+  border-left: 3px solid #ef4444;
+}
+
+.model-ans-toggle {
+  background: #f3f4f6;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 7px 14px;
+  font-size: 0.83rem;
+  font-weight: 600;
+  color: #374151;
+  cursor: pointer;
+  transition: all 0.15s;
+  align-self: flex-start;
+}
+
+.model-ans-toggle:hover {
+  border-color: #6366f1;
+  color: #6366f1;
+  background: #f0f0ff;
+}
+
+.model-ans-box {
+  background: #f8f9ff;
+  border: 1.5px solid #c7d2fe;
+  border-radius: 10px;
+  padding: 12px 16px;
+  font-size: 0.87rem;
+  color: #374151;
+  line-height: 1.6;
+  animation: cardIn 0.2s ease forwards;
+}
+
+/* ── Level Progress Bar ────────────────────────────────────── */
+.level-progress-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 14px;
+  padding: 8px 12px;
+  background: #f8f9ff;
+  border: 1.5px solid #e8eaff;
+  border-radius: 12px;
+}
+
+.level-pip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #e5e7eb;
+  color: #9ca3af;
+  font-size: 0.75rem;
+  font-weight: 600;
+  transition: all 0.3s ease;
+}
+
+.level-pip.active {
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.25);
+  transform: scale(1.08);
+}
+
+.level-pip.done {
+  color: #fff;
+  opacity: 0.75;
+}
+
+.pip-label {
+  font-size: 0.7rem;
+}
+
+.level-score-avg {
+  margin-left: auto;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #6366f1;
+  background: #eef0ff;
+  border-radius: 999px;
+  padding: 2px 10px;
+}
+
+/* ── Adaptive info box (start screen) ─────────────────────── */
+.adaptive-info-box {
+  background: #f8f9ff;
+  border: 1.5px solid #e0e4ff;
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin: 12px 0 6px;
+  font-size: 0.82rem;
+}
+
+.adaptive-info-title {
+  font-weight: 700;
+  color: #4f46e5;
+  margin-bottom: 8px;
+  font-size: 0.85rem;
+}
+
+.adaptive-level-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #374151;
+  margin-bottom: 4px;
+}
+
+.adaptive-level-row.gray {
+  color: #9ca3af;
+  font-style: italic;
+}
+
+.adaptive-arrow {
+  font-size: 0.72rem;
+  color: #6366f1;
+  font-weight: 700;
+  background: #eef0ff;
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+/* ── Scenario Card ─────────────────────────────────────────── */
+.scenario-card {
+  max-width: 780px;
+}
+
+.scenario-box {
+  background: linear-gradient(135deg, #fef9f0 0%, #fff8ec 100%);
+  border: 1.5px solid #fed7aa;
+  border-left: 4px solid #f97316;
+  border-radius: 12px;
+  padding: 16px 18px;
+  margin-bottom: 16px;
+}
+
+.scenario-context-tag {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #ea580c;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 8px;
+}
+
+.scenario-text {
+  font-size: 0.95rem;
+  color: #1c1917;
+  line-height: 1.65;
+  font-weight: 500;
+}
+
+/* ── Decision Step Indicator (dots) ────────────────────────── */
+.decision-step-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.step-dot {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #e5e7eb;
+  color: #9ca3af;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.82rem;
+  font-weight: 700;
+  transition: all 0.3s ease;
+  flex-shrink: 0;
+}
+
+.step-dot.active {
+  background: #ef4444;
+  color: #fff;
+  box-shadow: 0 2px 10px rgba(239, 68, 68, 0.35);
+  transform: scale(1.15);
+}
+
+.step-dot.done {
+  background: #22c55e;
+  color: #fff;
+}
+
+.step-label-text {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #6b7280;
+  margin-left: 4px;
+}
+
+/* ── Decision Point Box ────────────────────────────────────── */
+.decision-point-box {
+  background: #fafafa;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 14px;
+}
+
+.dp-number {
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #ef4444;
+  margin-bottom: 8px;
+}
+
+.dp-situation {
+  font-size: 0.93rem;
+  color: #111;
+  line-height: 1.6;
+  font-weight: 500;
+  margin-bottom: 12px;
+}
+
+/* ── Previous Steps Summary ────────────────────────────────── */
+.prev-steps-summary {
+  margin-top: 12px;
+  background: #f8f9ff;
+  border: 1.5px solid #e8eaff;
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.prev-steps-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+}
+
+.prev-step-item {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 5px;
+  align-items: flex-start;
+}
+
+.prev-step-num {
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: #fff;
+  background: #6366f1;
+  border-radius: 4px;
+  padding: 1px 7px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.prev-step-text {
+  font-size: 0.82rem;
+  color: #374151;
+  line-height: 1.45;
+}
+
+/* ── Scenario Evaluation Panel ─────────────────────────────── */
+.scenario-eval {
+  gap: 16px;
+}
+
+.consistency-badge {
+  font-size: 0.82rem;
+  color: #6366f1;
+  font-weight: 600;
+  margin: 4px 0;
+}
+
+/* ── Decision Breakdown (score bars) ────────────────────────── */
+.decision-breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dp-score-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dp-step-label {
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: #6b7280;
+  width: 28px;
+  flex-shrink: 0;
+  text-align: center;
+}
+
+.dp-mini-bar {
+  flex: 1;
+  height: 8px;
+  background: #f3f4f6;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.dp-mini-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.dp-score-num {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #374151;
+  width: 36px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.dp-grade-chip {
+  font-size: 0.72rem;
+  font-weight: 700;
+  width: 80px;
+  flex-shrink: 0;
+}
+
+.consistency-row .dp-step-label {
+  color: #6366f1;
+}
+
+/* ── Decision Feedback Rows ────────────────────────────────── */
+.dp-feedback-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-bottom: 6px;
+}
+
+.dp-feedback-tag {
+  font-size: 0.7rem;
+  font-weight: 800;
+  border-radius: 5px;
+  padding: 2px 8px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.dp-feedback-text {
+  font-size: 0.84rem;
+  color: #374151;
+  line-height: 1.5;
+}
+
+/* ── Expert Assessment Box ─────────────────────────────────── */
+.expert-assessment-box {
+  display: flex;
+  gap: 10px;
+  background: linear-gradient(135deg, #f0fdf4, #dcfce7);
+  border: 1.5px solid #86efac;
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.expert-icon {
+  font-size: 1.2rem;
+  flex-shrink: 0;
+}
+
+.expert-assessment-box p {
+  font-size: 0.87rem;
+  color: #14532d;
+  line-height: 1.55;
+  font-weight: 500;
+}
