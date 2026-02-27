@@ -1,0 +1,320 @@
+# AdaptQuiz — Complete System Flow Diagram
+
+---
+
+## 1. High-Level Architecture
+
+```mermaid
+graph LR
+    subgraph Frontend["🖥️ React Frontend (Vite)"]
+        UI["App.jsx\nUI + State Management"]
+    end
+
+    subgraph Backend["🐍 Flask Backend (main.py)"]
+        API["REST API\n:8000"]
+        AE["Adaptive Engine\n_adapt_level()\n_adapt_difficulty()"]
+        A1["Level 1 Agent\ngenerate_mcq\ngenerate_feedback"]
+        A2["Level 2 Agent\ngenerate_why_question\nevaluate_why_answer"]
+        A3["Level 3 Agent\ngenerate_scenario\nevaluate_scenario"]
+    end
+
+    subgraph LLM["☁️ Groq API"]
+        M1["openai/gpt-oss-120b\n(Question & Eval tools)"]
+        M2["llama-3.3-70b-versatile\n(Agent orchestrator)"]
+    end
+
+    subgraph DB["🗄️ SQLite DB"]
+        D1["Users\ndifficulty state"]
+        D2["Questions\ncache + history"]
+        D3["Interactions\nresponse times"]
+    end
+
+    UI -- "POST /adaptive/start\nPOST /adaptive/next\nPOST /l2/evaluate\nPOST /l3/evaluate\nPOST /feedback" --> API
+    API --> AE --> A1 & A2 & A3
+    A1 & A2 & A3 -- "agent.call(tool)" --> M1
+    A1 & A2 & A3 -- "agent.run(task)" --> M2
+    API <--> DB
+```
+
+---
+
+## 2. User Journey — Frontend Flow
+
+```mermaid
+flowchart TD
+    Start([🏠 Dashboard]) --> ST["User types topic in search bar\nSelects proficiency: Beginner / Intermediate / Advanced\nSets number of questions via slider"]
+    ST --> SQ["Click: Start Adaptive Quiz"]
+    SQ --> POST1["POST /adaptive/start\n{topic, proficiency}"]
+    POST1 --> Q1["Receive Question\n(always L1 MCQ, medium)"]
+    Q1 --> QLoop{"Question Type?"}
+
+    QLoop -- "type: mcq" --> MCQ["MCQ Screen\nDisplay options A/B/C/D\nUser clicks answer\n→ instant reveal + explanation"]
+    QLoop -- "type: open" --> OPEN["Open Answer Screen\nDisplay 'Why' question\nUser types answer\n→ Submit → POST /l2/evaluate\n→ Show score + feedback"]
+    QLoop -- "type: scenario" --> SCEN["Scenario Screen\nDisplay crisis scenario\n3 sequential decisions\n→ Submit all → POST /l3/evaluate\n→ Show per-decision scores\n+ consistency score"]
+
+    MCQ --> NEXT["Record: isCorrect, timeTaken, score"]
+    OPEN --> NEXT
+    SCEN --> NEXT
+
+    NEXT --> Done{"qIndex >= numQuestions?"}
+    Done -- "No" --> POSTNEXT["POST /adaptive/next\n{score, time, level, difficulty, recentScores}"]
+    POSTNEXT --> AdaptEngine["Adaptive Engine decides\nnew level + difficulty"]
+    AdaptEngine --> Q1
+
+    Done -- "Yes" --> RESULTS["Results Screen\nScore table per question\nLevel breakdown\nPOST /feedback → AI study note"]
+    RESULTS --> Restart([🔄 Restart or Analytics])
+```
+
+---
+
+## 3. Backend — Adaptive Engine Logic
+
+```mermaid
+flowchart TD
+    NXT["POST /adaptive/next receives:\ncurrent_level, current_difficulty\nlast_score_pct, time_taken_ms\nrecent_score_pcts list"]
+
+    NXT --> AppendScore["Append last_score to recent_scores"]
+    AppendScore --> AL["_adapt_level(current_level, recent_scores)"]
+
+    AL --> W["Rolling 2-question window avg"]
+    W --> L1C{"Current = L1?"}
+    L1C -- "avg ≥ 80%" --> L2["→ Level UP to L2"]
+    L1C -- "avg < 80%" --> Stay1["→ Stay L1"]
+
+    W --> L2C{"Current = L2?"}
+    L2C -- "avg ≥ 75%" --> L3["→ Level UP to L3"]
+    L2C -- "avg < 35%" --> L1D["→ Level DOWN to L1"]
+    L2C -- "35%–74%" --> Stay2["→ Stay L2"]
+
+    W --> L3C{"Current = L3?"}
+    L3C -- "avg < 35%" --> L2D["→ Level DOWN to L2"]
+    L3C -- "avg ≥ 35%" --> Stay3["→ Stay L3"]
+
+    L2 & Stay1 & L3 & Stay2 & L1D & L2D & Stay3 --> NewLevel["new_level determined"]
+    NewLevel --> DiffReset{"Level changed?"}
+    DiffReset -- "Yes" --> ResetMed["Reset difficulty = medium"]
+    DiffReset -- "No" --> AD["_adapt_difficulty(level, cur_diff, score, time_ms)"]
+
+    AD --> SC{"Correct AND fast?"}
+    SC -- "Yes" --> Up["difficulty ++\neasy→medium→hard"]
+    SC -- "No (wrong or slow)" --> Dn["difficulty --\nhard→medium→easy"]
+    SC -- "Correct but slow" --> StayD["difficulty stays"]
+
+    ResetMed & Up & Dn & StayD --> GenQ["_generate_for_level(new_level, topic, new_diff)"]
+    GenQ --> Dispatch{"new_level?"}
+    Dispatch -- "1" --> DispL1["level1_agent.call('generate_mcq')"]
+    Dispatch -- "2" --> DispL2["level2_agent.call('generate_why_question')"]
+    Dispatch -- "3" --> DispL3["level3_agent.call('generate_scenario')\n⚠️ try/except → L2 fallback on failure"]
+    DispL1 & DispL2 & DispL3 --> Resp["Return {question, new_level, new_difficulty}"]
+```
+
+---
+
+## 4. Agent Architecture — QuizAgent
+
+```mermaid
+classDiagram
+    class QuizAgent {
+        +groq_client
+        +_registry: dict[str, Tool]
+        +register(tool: Tool) QuizAgent
+        +add_tool(name, desc, params, func) QuizAgent
+        +call(tool_name, **kwargs) dict
+        +run(task, system, max_turns) str
+        +list_tools() list[str]
+        -_tool_schemas() list[dict]
+    }
+
+    class Tool {
+        +name: str
+        +description: str
+        +parameters: dict
+        +func: callable
+    }
+
+    class Level1Agent {
+        tools: generate_mcq
+        tools: generate_feedback
+    }
+
+    class Level2Agent {
+        tools: generate_why_question
+        tools: evaluate_why_answer
+    }
+
+    class Level3Agent {
+        tools: generate_scenario
+        tools: evaluate_scenario
+    }
+
+    QuizAgent --> Tool : registry
+    Level1Agent --|> QuizAgent
+    Level2Agent --|> QuizAgent
+    Level3Agent --|> QuizAgent
+```
+
+---
+
+## 5. L1 — MCQ Flow (Knowledge)
+
+```mermaid
+sequenceDiagram
+    participant FE as Frontend
+    participant API as Flask API
+    participant Ag as level1_agent
+    participant LLM as Groq LLM (gpt-oss-120b)
+    participant DB as SQLite
+
+    FE->>API: POST /adaptive/start {topic, proficiency}
+    API->>Ag: agent.call("generate_mcq", topic, difficulty, proficiency)
+    Ag->>LLM: Build prompt → Chat completions API
+    LLM-->>Ag: JSON {question, options{A,B,C,D}, correct, explanation}
+    Ag-->>API: Structured MCQ dict
+    API->>DB: save_question(qid, topic, q, difficulty)
+    API-->>FE: {question: {type:"mcq", ...}}
+
+    FE->>FE: User selects answer → instant reveal (no server call)
+    FE->>API: POST /adaptive/next {score:100 or 0, time_ms, ...}
+    API->>API: _adapt_level() + _adapt_difficulty()
+    API-->>FE: {question: next_q, new_level, new_difficulty}
+```
+
+---
+
+## 6. L2 — Open Answer Flow (Understanding)
+
+```mermaid
+sequenceDiagram
+    participant FE as Frontend
+    participant API as Flask API
+    participant Ag as level2_agent
+    participant LLM as Groq LLM (gpt-oss-120b)
+
+    API->>Ag: agent.call("generate_why_question", topic, difficulty, proficiency)
+    Ag->>LLM: Prompt → Why/Explain style question
+    LLM-->>Ag: {question, context, hint, sample_answer}
+    API-->>FE: {type:"open", question, hint, sample_answer}
+
+    FE->>FE: User reads question\nToggle hint (optional)\nTypes answer in textarea
+
+    FE->>API: POST /l2/evaluate {question, user_answer, sample_answer, proficiency}
+    API->>Ag: agent.call("evaluate_why_answer", ...)
+    Ag->>LLM: Evaluate answer quality
+    LLM-->>Ag: {score/10, max_score:10, grade, feedback,\nkey_points_hit[], missing_points[], model_answer}
+    API-->>FE: Evaluation result
+
+    FE->>FE: Shows EvalPanel:\nDonut chart score\nGrade badge\nCorrect / Missing points\nModel answer toggle
+
+    FE->>API: POST /adaptive/next {score_pct, ...}
+```
+
+---
+
+## 7. L3 — Decision Tree Flow (Mastery)
+
+```mermaid
+sequenceDiagram
+    participant FE as Frontend
+    participant API as Flask API
+    participant Ag as level3_agent
+    participant LLM as Groq LLM (gpt-oss-120b)
+
+    API->>Ag: agent.call("generate_scenario", topic, difficulty, proficiency)
+    Ag->>LLM: Generate crisis/strategic scenario
+    LLM-->>Ag: {scenario, context,\ndecision_points:[{step, situation, hint}×3],\nsample_answers:{1:..., 2:..., 3:...}}
+    Note over Ag,API: Validate: scenario + decision_points present\nFallback to L2 if missing
+    API-->>FE: {type:"scenario", scenario, decision_points[]}
+
+    FE->>FE: Show scenario description
+    loop For each of 3 decision points
+        FE->>FE: Show situation text\nToggle hint (optional)\nUser types decision answer\nClick "Next Decision"
+    end
+
+    FE->>API: POST /l3/evaluate\n{scenario, decision_points, user_answers{1,2,3}, proficiency}
+    API->>Ag: agent.call("evaluate_scenario", ...)
+    Ag->>LLM: Evaluate all 3 decisions holistically
+    LLM-->>Ag: {decision_scores:[{step,score/10,grade,feedback}×3],\nconsistency_score/10, consistency_note,\ntotal_score/30, overall_grade,\nexpert_assessment, model_approach}
+
+    API-->>FE: Full scenario evaluation
+
+    FE->>FE: Shows ScenarioEvalPanel:\nPer-decision mini bar charts\nConsistency score (Expert signal)\nExpert assessment\nModel strategy toggle
+
+    FE->>API: POST /adaptive/next {score_pct, ...}
+```
+
+---
+
+## 8. Database Schema & Interactions
+
+```mermaid
+erDiagram
+    USERS {
+        text user_id PK
+        real difficulty
+        timestamp created_at
+        timestamp updated_at
+    }
+    QUESTIONS {
+        text question_id PK
+        text topic
+        json question_data
+        real difficulty
+        int expected_time_ms
+        timestamp created_at
+    }
+    INTERACTIONS {
+        int id PK
+        text user_id FK
+        text question_id FK
+        bool is_correct
+        int time_taken_ms
+        real score_pct
+        timestamp created_at
+    }
+
+    USERS ||--o{ INTERACTIONS : "has"
+    QUESTIONS ||--o{ INTERACTIONS : "referenced_in"
+```
+
+---
+
+## 9. API Endpoints Summary
+
+| Route | Method | Purpose | Agent/Tool Used |
+|---|---|---|---|
+| `/adaptive/start` | POST | Start quiz, first L1 MCQ | `level1_agent → generate_mcq` |
+| `/adaptive/next` | POST | Auto-adapt next question | `_adapt_level + _adapt_difficulty → any agent` |
+| `/l2/evaluate` | POST | Score open text answer | `level2_agent → evaluate_why_answer` |
+| `/l3/evaluate` | POST | Score decision tree scenario | `level3_agent → evaluate_scenario` |
+| `/feedback` | POST | Generate study coach note | `level1_agent → generate_feedback` |
+| `/start` | POST | Manual L1 start (legacy) | `level1_agent → generate_mcq` |
+| `/next` | POST | Manual L1 next (legacy) | `level1_agent → generate_mcq` |
+| `/submit` | POST | Manual MCQ submit (legacy) | DB + difficulty compute |
+| `/l2/question` | POST | Manual L2 question (legacy) | `level2_agent → generate_why_question` |
+| `/l3/question` | POST | Manual L3 question (legacy) | `level3_agent → generate_scenario` |
+
+---
+
+## 10. Difficulty Adaptation Matrix
+
+```mermaid
+quadrantChart
+    title Score vs Speed → Difficulty Outcome
+    x-axis "Slow Response" --> "Fast Response"
+    y-axis "Wrong Answer" --> "Correct Answer"
+    quadrant-1 "Difficulty UP ⬆️"
+    quadrant-2 "Stay Same ➡️"
+    quadrant-3 "Difficulty DOWN ⬇️"
+    quadrant-4 "Difficulty DOWN ⬇️"
+```
+
+| Score | Speed | Action |
+|---|---|---|
+| ✅ Correct | ⚡ Fast (≤ expected) | Difficulty **UP** (easy→medium→hard) |
+| ✅ Correct | 🐢 Slow (> expected) | Difficulty **stays** |
+| ❌ Wrong | Any | Difficulty **DOWN** (hard→medium→easy) |
+
+**Expected time thresholds:**
+- L1: easy=15s · medium=25s · hard=45s
+- L2: easy=60s · medium=90s · hard=150s
+- L3: easy=5min · medium=8min · hard=12min
