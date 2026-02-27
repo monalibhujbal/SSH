@@ -11,6 +11,7 @@ Tables
 import json
 import os
 import sqlite3
+import uuid
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "study_assistant.db")
 
@@ -61,6 +62,37 @@ CREATE TABLE IF NOT EXISTS interaction_logs (
 
 CREATE INDEX IF NOT EXISTS idx_logs_user     ON interaction_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_logs_question ON interaction_logs(question_id);
+
+-- ── Assessment Sessions ───────────────────────────────────────────────────
+-- Unified table for both Daily Quiz and AI Interview results.
+CREATE TABLE IF NOT EXISTS assessment_sessions (
+    session_id      TEXT    PRIMARY KEY,
+    user_id         TEXT    NOT NULL,
+    assessment_type TEXT    NOT NULL,   -- 'quiz' | 'interview'
+    topic           TEXT    NOT NULL,
+    score           REAL    NOT NULL,
+    max_score       REAL    NOT NULL,
+    percentage      REAL    NOT NULL,
+    feedback        TEXT,
+    metadata        TEXT,               -- JSON blob for extra details
+    created_at      TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON assessment_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_topic ON assessment_sessions(topic);
+
+-- ── Skill Metrics (Aggregated) ──────────────────────────────────────────────
+-- Denormalized table for fast analytics lookups.
+CREATE TABLE IF NOT EXISTS skill_scores (
+    user_id         TEXT    NOT NULL,
+    skill           TEXT    NOT NULL,   -- often the 'topic'
+    avg_score       REAL    NOT NULL,
+    attempts        INTEGER NOT NULL DEFAULT 1,
+    last_updated    TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, skill),
+    FOREIGN KEY (user_id) REFERENCES users(user_id)
+);
 """
 
 
@@ -216,3 +248,75 @@ def log_interaction(
                 (user_id, question_id, payload, delta_d, new_difficulty)
             VALUES (?, ?, ?, ?, ?)
         """, (user_id, question_id, json.dumps(payload), delta_d, new_difficulty))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Analytics & Sessions
+# ─────────────────────────────────────────────────────────────────────────────
+
+def save_assessment_session(
+    user_id: str,
+    assessment_type: str,
+    topic: str,
+    score: float,
+    max_score: float,
+    feedback: str = "",
+    metadata: dict = None
+) -> str:
+    """Save a completed assessment and update skill scores."""
+    if metadata and metadata.get('session_id'):
+        session_id = metadata.get('session_id')
+    else:
+        session_id = str(uuid.uuid4())
+    
+    pct = (score / max_score * 100) if max_score > 0 else 0
+    
+    with _get_conn() as conn:
+        # 1. Save session
+        conn.execute("""
+            INSERT INTO assessment_sessions 
+            (session_id, user_id, assessment_type, topic, score, max_score, percentage, feedback, metadata)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (session_id, user_id, assessment_type, topic, score, max_score, pct, feedback, json.dumps(metadata or {})))
+        
+        # 2. Update Aggregated Skills
+        conn.execute("""
+            INSERT INTO skill_scores (user_id, skill, avg_score, attempts, last_updated)
+            VALUES (?, ?, ?, 1, CURRENT_TIMESTAMP)
+            ON CONFLICT(user_id, skill) DO UPDATE SET
+                avg_score = (avg_score * attempts + excluded.avg_score) / (attempts + 1),
+                attempts = attempts + 1,
+                last_updated = CURRENT_TIMESTAMP
+        """, (user_id, topic, pct))
+        
+    return session_id
+
+def get_analytics_summary(user_id: str) -> dict:
+    """Return comprehensive analytics for the dashboard."""
+    with _get_conn() as conn:
+        # Skill-wise breakdown
+        skills = conn.execute(
+            "SELECT skill, avg_score, attempts FROM skill_scores WHERE user_id = ? ORDER BY avg_score DESC",
+            (user_id,)
+        ).fetchall()
+        
+        # Recent sessions
+        sessions = conn.execute(
+            "SELECT * FROM assessment_sessions WHERE user_id = ? ORDER BY created_at DESC LIMIT 10",
+            (user_id,)
+        ).fetchall()
+        
+        # Overall stats
+        stats = conn.execute("""
+            SELECT 
+                COUNT(*) as total_assessments,
+                AVG(percentage) as avg_percentage,
+                MAX(percentage) as best_percentage
+            FROM assessment_sessions WHERE user_id = ?
+        """, (user_id,)).fetchone()
+
+        return {
+            "skills": [dict(s) for s in skills],
+            "sessions": [dict(s) for s in sessions],
+            "overall": dict(stats) if stats else {}
+        }

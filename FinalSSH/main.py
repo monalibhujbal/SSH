@@ -55,9 +55,11 @@ from tools.level2_question_tool  import create_level2_question_tool
 from tools.level2_eval_tool      import create_level2_eval_tool
 from tools.level3_question_tool  import create_level3_question_tool
 from tools.level3_eval_tool      import create_level3_eval_tool
+from tools.improvement_tool       import create_improvement_tool
 from db import (
     init_db, get_or_create_user, update_user_difficulty,
     save_question, get_question, get_nearest_question, log_interaction,
+    save_assessment_session, get_analytics_summary
 )
 from difficulty import (
     compute_next_difficulty, difficulty_to_label,
@@ -103,6 +105,11 @@ interview_agent = (
     .register(create_interview_question_tool(client))
     .register(create_interview_eval_tool(client))
     .register(create_interview_analysis_tool(client))
+)
+
+improvement_agent = (
+    QuizAgent(client)
+    .register(create_improvement_tool(client))
 )
 
 # ── Expected response time per level × difficulty (ms) ───────────────────────
@@ -522,6 +529,60 @@ def interview_analyze():
         logging.exception("interview_analyze failed: %s", e)
         return jsonify({"error": str(e)}), 500
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  ANALYTICS ROUTES
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.route("/session/save", methods=["POST"])
+def session_save():
+    """Save an assessment session result manually from the frontend."""
+    data = request.get_json()
+    user_id = data.get("userId", "anonymous")
+    a_type  = data.get("type", "quiz")
+    topic   = data.get("topic", "General")
+    score   = float(data.get("score", 0))
+    max_s   = float(data.get("max_score", 10))
+    fb      = data.get("feedback", "")
+    meta    = data.get("metadata", {})
+    
+    try:
+        sid = save_assessment_session(user_id, a_type, topic, score, max_s, fb, meta)
+        return jsonify({"status": "success", "session_id": sid})
+    except Exception as e:
+        import logging
+        logging.exception("Failed to save session: %s", e)
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route("/analytics/summary", methods=["GET"])
+def analytics_summary():
+    """Fetch analytics summary for a user."""
+    user_id = request.args.get("userId", "anonymous")
+    summary = get_analytics_summary(user_id)
+    return jsonify(summary)
+
+@app.route("/analytics/improvement", methods=["GET"])
+def analytics_improvement():
+    """Generate in-depth improvement analysis and resources for weak skills."""
+    user_id = request.args.get("userId", "anonymous")
+    summary = get_analytics_summary(user_id)
+    
+    # Filter skills that need improvement (avg_score < 75 or top 3 lowest)
+    skills = summary.get("skills", [])
+    if not skills:
+        return jsonify({"message": "No data yet", "skills_analysis": []})
+        
+    # Sort by score ascending and take the bottom 3
+    weak_skills = sorted(skills, key=lambda x: x["avg_score"])[:3]
+    
+    try:
+        plan = improvement_agent.call(
+            "generate_improvement_plan",
+            low_performing_skills=[{"skill": s["skill"], "avg_score": s["avg_score"]} for s in weak_skills]
+        )
+        return jsonify(plan)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 # ══════════════════════════════════════════════════════════════════════════════
 if __name__ == "__main__":

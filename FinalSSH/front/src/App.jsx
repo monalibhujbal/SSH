@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import "./App.css";
+import "./Improvement.css";
 import { PieChart, Pie, Cell, ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, BarChart, Bar } from 'recharts';
 // jsPDF and html2canvas will be loaded dynamically to avoid build-time resolution issues
 
@@ -433,6 +434,100 @@ function AnalyticsDashboard({ sessions, onBack }) {
     </div>
   );
 }
+function ImprovementTab({ onBack }) {
+  const [loading, setLoading] = useState(true);
+  const [plan, setPlan] = useState(null);
+
+  useEffect(() => {
+    fetch(`${API}/analytics/improvement?userId=anonymous`)
+      .then(r => r.json())
+      .then(d => { setPlan(d); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+
+  if (loading) return <div className="im-page"><div className="loading-state"><div className="spinner" /><p>Curating your mastery path...</p></div></div>;
+
+  if (!plan || !plan.skills_analysis || plan.skills_analysis.length === 0) {
+    return (
+      <div className="im-page">
+        <div className="im-empty-state">
+          <div className="im-empty-icon">🌟</div>
+          <h3>Mastery Awaits</h3>
+          <p>You haven't completed enough assessments to generate an improvement plan yet.</p>
+          <button className="btn primary" onClick={onBack}>Start an Assessment</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="im-page">
+      <div className="im-head-row">
+        <div className="im-title-group">
+          <h1>Improvement Hub</h1>
+          <p>Personalized roadmap to master your priorities</p>
+        </div>
+        <button className="im-back-pill" onClick={onBack}>← Back to Dashboard</button>
+      </div>
+
+      <div className="im-hero-card">
+         <div className="im-hero-glow"></div>
+         <div className="im-hero-content">
+            <div className="im-hero-badge">ADAPTIVE STRATEGY</div>
+            <h2>Focused Growth Plan</h2>
+            <p>{plan.overall_strategy}</p>
+         </div>
+      </div>
+
+      <div className="im-card-stack">
+        {plan.skills_analysis.map((s, i) => (
+          <div key={i} className="im-skill-card">
+            <div className="im-card-side">
+               <div className="im-side-score">
+                  <span className="im-score-val">{Math.round(s.avg_score)}%</span>
+                  <span className="im-score-label">Proficiency</span>
+               </div>
+               <div className={`im-side-status ${s.status.toLowerCase()}`}>{s.status}</div>
+            </div>
+            
+            <div className="im-card-main">
+              <div className="im-main-top">
+                <h3>{s.skill}</h3>
+                <div className="im-subtopics-list">
+                  {s.sub_topics.map(t => <span key={t} className="im-subtopic-dot">{t}</span>)}
+                </div>
+              </div>
+
+              <div className="im-detail-grid">
+                <div className="im-detail-box note">
+                  <div className="im-detail-label"><span className="im-icon">💡</span> Conceptual Foundation</div>
+                  <p>{s.conceptual_note}</p>
+                </div>
+                
+                <div className="im-detail-box resources">
+                   <div className="im-detail-label"><span className="im-icon">🔗</span> Recommended Learning</div>
+                   <div className="im-res-grid">
+                      {(s.resources || []).map((r, ri) => (
+                        <a key={ri} href={r.url} target="_blank" rel="noopener noreferrer" className={`im-res-chip ${r.type}`}>
+                          <span className="im-chip-icon">{r.type === 'youtube' ? '▶' : '📕'}</span>
+                          <span>{r.title}</span>
+                        </a>
+                      ))}
+                   </div>
+                </div>
+
+                <div className="im-detail-box challenge">
+                  <div className="im-detail-label"><span className="im-icon">⚔️</span> Mastery Challenge</div>
+                  <div className="im-challenge-text">{s.practice_challenge}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 /* ── New Sidebar ──────────────────────────────────────────────── */
 function Sidebar({ screen, setScreen, sessions, onReview }) {
@@ -440,6 +535,7 @@ function Sidebar({ screen, setScreen, sessions, onReview }) {
     { id: "start", label: "Dashboard", icon: "⊞" },
     { id: "quizzes", label: "Past Quizzes", icon: "🕐" },
     { id: "analytics", label: "Analytics", icon: "📊" },
+    { id: "improvement", label: "Improvement", icon: "🚀" },
     { id: "interview", label: "AI Interview", icon: "🎙️" },
   ];
   const [showSessions, setShowSessions] = useState(false);
@@ -1035,6 +1131,9 @@ export default function App() {
 
           {/* ── Analytics ── */}
           {screen === "analytics" && <div className="an-wrapper"><AnalyticsDashboard sessions={sessions} onBack={() => setScreen("start")} /></div>}
+
+          {/* ── Improvement ── */}
+          {screen === "improvement" && <div className="im-wrapper"><ImprovementTab onBack={() => setScreen("start")} /></div>}
 
           {/* ── AI Interview ── */}
           {screen === "interview" && <InterviewScreen globalTopic={topic} globalProficiency={proficiency} onExit={() => setScreen("start")} />}
