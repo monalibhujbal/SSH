@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import "./App.css";
 
 const API = "http://localhost:8000";
@@ -44,64 +44,82 @@ function gradeColor(g) { return g === "Excellent" ? "#22c55e" : g === "Good" ? "
 function scoreBadgeClass(p) { return p >= 80 ? "badge-excellent" : p >= 60 ? "badge-good" : p >= 40 ? "badge-fair" : "badge-poor"; }
 function scoreBadgeLabel(p) { return p >= 80 ? "Excellent 🏆" : p >= 60 ? "Good 👍" : p >= 40 ? "Fair 💪" : "Needs Work 📖"; }
 
+import { PieChart, Pie, Cell, ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
+
 /* ── DonutChart ───────────────────────────────────────────────── */
 function DonutChart({ correct, total, color = "#f97316" }) {
-  const [anim, setAnim] = useState(false);
-  useEffect(() => { const t = setTimeout(() => setAnim(true), 80); return () => clearTimeout(t); }, []);
-  const r = 38, cx = 48, cy = 48, sw = 11, circ = 2 * Math.PI * r;
-  const pct = total ? (anim ? correct / total : 0) : 0;
+  const data = [
+    { name: 'Correct', value: correct },
+    { name: 'Incorrect', value: total - correct }
+  ];
   return (
-    <svg width={96} height={96}>
-      <circle cx={cx} cy={cy} r={r} fill="none" stroke="#f1f5f9" strokeWidth={sw} />
-      <circle cx={cx} cy={cy} r={r} fill="none" stroke={color} strokeWidth={sw}
-        strokeDasharray={`${pct * circ} ${circ}`} strokeDashoffset={circ / 4}
-        strokeLinecap="round" style={{ transition: "stroke-dasharray 0.9s cubic-bezier(.4,0,.2,1)" }} />
-      <text x={cx} y={cy - 5} textAnchor="middle" fontSize="14" fontWeight="800" fill="#111">{correct}/{total}</text>
-      <text x={cx} y={cy + 11} textAnchor="middle" fontSize="9" fill="#94a3b8">Score</text>
-    </svg>
+    <div style={{ width: 96, height: 96, position: 'relative' }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <PieChart>
+          <Pie
+            data={data}
+            cx="50%"
+            cy="50%"
+            innerRadius={30}
+            outerRadius={40}
+            startAngle={90}
+            endAngle={-270}
+            dataKey="value"
+            stroke="none"
+          >
+            <Cell key="cell-0" fill={color} />
+            <Cell key="cell-1" fill="#f1f5f9" />
+          </Pie>
+          <Tooltip contentStyle={{ borderRadius: 8, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} itemStyle={{ color: '#111', fontWeight: 600 }} formatter={(value) => [value, 'Questions']} />
+        </PieChart>
+      </ResponsiveContainer>
+      <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+        <span style={{ fontSize: 14, fontWeight: 800, color: '#111' }}>{correct}/{total}</span>
+      </div>
+    </div>
   );
 }
 
-/* ── Chart helpers ────────────────────────────────────────────── */
-function SvgTooltip({ x, y, lines, visible }) {
-  if (!visible) return null;
-  const W = 100, H = lines.length * 14 + 10, tx = x - W / 2, ty = y - H - 10;
-  return (
-    <g style={{ pointerEvents: "none" }}>
-      <rect x={tx} y={ty} width={W} height={H} rx={5} fill="#1e1b4b" opacity={0.92} />
-      {lines.map((l, i) => <text key={i} x={tx + 6} y={ty + 12 + i * 14} fontSize="10" fill="#fff" fontWeight={i === 0 ? "700" : "400"}>{l}</text>)}
-    </g>
-  );
-}
+/* ── TrendChart ───────────────────────────────────────────────── */
 function TrendChart({ sessions }) {
-  const [hov, setHov] = useState(null);
-  const data = [...sessions].reverse();
-  const W = 340, H = 90, P = { t: 12, b: 22, l: 30, r: 12 };
-  const iW = W - P.l - P.r, iH = H - P.t - P.b;
-  const pts = data.map((s, i) => ({
-    x: P.l + (data.length < 2 ? iW / 2 : (i / (data.length - 1)) * iW),
-    y: P.t + iH - (s.score / s.total) * iH,
-    pct: Math.round(s.score / s.total * 100), topic: s.topic
+  const data = [...sessions].reverse().map(s => ({
+    name: s.topic,
+    score: Math.round(s.score / s.total * 100),
+    date: s.date
   }));
-  const line = pts.map(p => `${p.x},${p.y}`).join(" ");
-  const area = pts.length >= 2 ? `${pts[0].x},${P.t + iH} ${line} ${pts[pts.length - 1].x},${P.t + iH}` : "";
+
   let tT = "", tC = "";
-  if (data.length >= 2) { const d = pts[pts.length - 1].pct - pts[0].pct; tT = d > 0 ? `▲ +${d}%` : d < 0 ? `▼ ${d}%` : "→ Consistent"; tC = d > 0 ? "trend-up" : d < 0 ? "trend-down" : "trend-flat"; }
+  if (data.length >= 2) {
+    const d = data[data.length - 1].score - data[0].score;
+    tT = d > 0 ? `▲ +${d}%` : d < 0 ? `▼ ${d}%` : "→ Consistent";
+    tC = d > 0 ? "trend-up" : d < 0 ? "trend-down" : "trend-flat";
+  }
+
   return (
-    <div>
-      {tT && <div className={`trend-insight ${tC}`}>{tT}</div>}
-      <svg width={W} height={H} className="an-svg">
-        <defs><linearGradient id="tG" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#f97316" stopOpacity="0.18" /><stop offset="100%" stopColor="#f97316" stopOpacity="0" /></linearGradient></defs>
-        {[0, 50, 100].map(v => { const y = P.t + iH - (v / 100) * iH; return <g key={v}><line x1={P.l} y1={y} x2={W - P.r} y2={y} stroke="#e5e7eb" strokeDasharray="4,3" /><text x={P.l - 3} y={y + 3} fontSize="8" fill="#bbb" textAnchor="end">{v}%</text></g>; })}
-        {area && <polygon points={area} fill="url(#tG)" />}
-        {pts.length >= 2 && <polyline points={line} fill="none" stroke="#f97316" strokeWidth="2.5" strokeLinejoin="round" className="an-line-draw" />}
-        {pts.map((p, i) => (
-          <g key={i} onMouseEnter={() => setHov(i)} onMouseLeave={() => setHov(null)} style={{ cursor: "pointer" }}>
-            <circle cx={p.x} cy={p.y} r={hov === i ? 7 : 4.5} fill={hov === i ? "#ea580c" : "#f97316"} stroke="#fff" strokeWidth="2" style={{ transition: "r 0.15s" }} />
-          </g>
-        ))}
-        {hov !== null && pts[hov] && <SvgTooltip x={pts[hov].x} y={pts[hov].y} visible lines={[pts[hov].topic, `Score: ${pts[hov].pct}%`]} />}
-      </svg>
+    <div style={{ width: '100%' }}>
+      {tT && <div className={`trend-insight ${tC}`} style={{ marginBottom: 12 }}>{tT}</div>}
+      <div style={{ width: '100%', height: 160 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={data} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+            <defs>
+              <linearGradient id="colorScore" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#f97316" stopOpacity={0.3} />
+                <stop offset="95%" stopColor="#f97316" stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+            <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} tickFormatter={(val) => val.length > 10 ? val.substring(0, 10) + '...' : val} />
+            <YAxis tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} domain={[0, 100]} ticks={[0, 50, 100]} tickFormatter={(val) => `${val}%`} />
+            <Tooltip
+              contentStyle={{ borderRadius: 8, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
+              labelStyle={{ fontWeight: 700, color: '#1e293b', marginBottom: 4 }}
+              itemStyle={{ color: '#f97316', fontWeight: 600 }}
+              formatter={(value) => [`${value}%`, 'Score']}
+            />
+            <Area type="monotone" dataKey="score" stroke="#f97316" strokeWidth={3} fillOpacity={1} fill="url(#colorScore)" activeDot={{ r: 6, strokeWidth: 0, fill: '#ea580c' }} />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 }
@@ -205,72 +223,140 @@ function LevelProgressBar({ currentLevel, recentScores }) {
   );
 }
 
-/* ── Analytics ────────────────────────────────────────────────── */
+/* ── Interactive Analytics Dashboard ────────────────────────────── */
 function AnalyticsDashboard({ sessions, onBack }) {
-  const [detail, setDetail] = useState(null);
   const [sort, setSort] = useState("newest");
-  if (detail) return <TestDetail session={detail} onBack={() => setDetail(null)} />;
+  const sorted = useMemo(() => {
+    return [...sessions].sort((a, b) =>
+      sort === "best" ? (b.score / b.total) - (a.score / a.total) :
+        sort === "worst" ? (a.score / a.total) - (b.score / b.total) :
+          sort === "topic" ? a.topic.localeCompare(b.topic) : 0
+    );
+  }, [sessions, sort]);
+
+  const [detail, setDetail] = useState(sorted[0] || null);
+
+  // Default to newest if the selected detail is removed or sort changes
+  useEffect(() => {
+    if (!detail && sorted.length > 0) setDetail(sorted[0]);
+  }, [sorted, detail]);
+
   const totalQ = sessions.reduce((s, x) => s + (x.history || []).length, 0);
   const avgScore = sessions.length ? Math.round(sessions.reduce((s, x) => s + x.score / x.total, 0) / sessions.length * 100) : 0;
   const bestScore = sessions.length ? Math.max(...sessions.map(s => Math.round(s.score / s.total * 100))) : 0;
-  const sorted = [...sessions].sort((a, b) => sort === "best" ? b.score / b.total - a.score / a.total : sort === "worst" ? a.score / a.total - b.score / b.total : sort === "topic" ? a.topic.localeCompare(b.topic) : 0);
-  return (
-    <div className="an-page">
-      <div className="an-page-header"><button className="an-back-btn" onClick={onBack}>← Back</button><h2>Analytics Dashboard</h2></div>
-      {sessions.length === 0
-        ? <div className="an-empty-state"><div className="an-empty-icon">📊</div><p>No quizzes yet.</p><p className="an-empty-sub">Complete a quiz and come back!</p></div>
-        : <>
-          <div className="an-stat-strip">
-            <StatCard icon="📝" label="Quizzes" value={sessions.length} color="#f97316" />
-            <StatCard icon="❓" label="Questions" value={totalQ} color="#8b5cf6" />
-            <StatCard icon="📊" label="Avg Score" value={avgScore} color="#f59e0b" suffix="%" />
-            <StatCard icon="🏆" label="Best" value={bestScore} color="#22c55e" suffix="%" />
-          </div>
-          <div className="an-card"><div className="an-card-title">📈 Score Trend</div>{sessions.length >= 2 ? <TrendChart sessions={sessions} /> : <p className="an-hint">Complete 2+ quizzes to see trend</p>}</div>
-          <div className="an-card">
-            <div className="an-card-header-row">
-              <div className="an-card-title" style={{ marginBottom: 0 }}>📋 All Tests</div>
-              <div className="an-sort-btns">{[["newest", "Newest"], ["best", "Best"], ["worst", "Worst"], ["topic", "A–Z"]].map(([k, l]) => <button key={k} className={`an-sort-btn ${sort === k ? "active" : ""}`} onClick={() => setSort(k)}>{l}</button>)}</div>
-            </div>
-            <div className="an-test-list" style={{ marginTop: 12 }}>
-              {sorted.map((s, i) => {
-                const pct = Math.round(s.score / s.total * 100); return (
-                  <button key={i} className="an-test-row" onClick={() => setDetail(s)}>
-                    <div className="an-test-left"><span className="an-test-topic">{s.topic}</span><span className="an-test-date">{s.date}</span></div>
-                    <div className="an-test-right"><div className="an-test-bar-wrap"><div className="an-test-bar-fill" style={{ width: `${pct}%`, background: pct >= 80 ? "#22c55e" : pct >= 60 ? "#f59e0b" : "#ef4444" }} /></div><span className="an-test-score">{s.score}/{s.total}</span></div>
-                    <span className="an-test-arrow">›</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </>
-      }
-    </div>
-  );
-}
 
-function TestDetail({ session, onBack }) {
-  const h = session.history || [];
-  const pct = Math.round(session.score / session.total * 100);
   return (
     <div className="an-page">
-      <div className="an-page-header"><button className="an-back-btn" onClick={onBack}>← All Tests</button><h2>{session.topic}</h2><span className="an-detail-date">{session.date}</span></div>
-      <div className={`performance-badge ${scoreBadgeClass(pct)}`}>{scoreBadgeLabel(pct)}</div>
-      <div className="an-overview-row">
-        <div className="an-overview-donut"><DonutChart correct={session.score} total={session.total} /><div className={`an-pct-label ${pct >= 80 ? "good" : pct >= 50 ? "mid" : "bad"}`}>{pct}%</div></div>
-        <div className="an-overview-stats">
-          <div className="an-ov-stat"><span className="an-ov-val" style={{ color: "#22c55e" }}>{h.filter(x => x.isCorrect || (x.score >= (x.max_score || 10) * .6)).length}</span><span className="an-ov-lbl">Good</span></div>
-          <div className="an-ov-stat"><span className="an-ov-val" style={{ color: "#ef4444" }}>{h.filter(x => !(x.isCorrect || (x.score >= (x.max_score || 10) * .6))).length}</span><span className="an-ov-lbl">Needs work</span></div>
+      <div className="an-page-header">
+        <button className="an-back-btn" onClick={onBack}>← Dashboard</button>
+        <h2>Interactive Analytics</h2>
+      </div>
+
+      {sessions.length === 0 ? (
+        <div className="an-empty-state"><div className="an-empty-icon">📊</div><p>No quizzes yet.</p><p className="an-empty-sub">Complete a quiz and come back!</p></div>
+      ) : (
+        <div className="an-dashboard-grid">
+          {/* Top: Global Stats */}
+          <div className="an-global-stats">
+            <StatCard icon="📝" label="Total Quizzes" value={sessions.length} color="#f97316" />
+            <StatCard icon="❓" label="Total Questions" value={totalQ} color="#8b5cf6" />
+            <StatCard icon="📊" label="Average Score" value={avgScore} color="#f59e0b" suffix="%" />
+            <StatCard icon="🏆" label="Best Score" value={bestScore} color="#22c55e" suffix="%" />
+          </div>
+
+          {/* Middle: Trend Line */}
+          <div className="an-card an-trend-card">
+            <div className="an-card-title">📈 Overall Performance Trend</div>
+            {sessions.length >= 2 ? <TrendChart sessions={sessions} /> : <p className="an-hint">Complete 2+ quizzes to see your trend</p>}
+          </div>
+
+          {/* Bottom: Split View (List + Detail) */}
+          <div className="an-split-view">
+            {/* Left: Test List */}
+            <div className="an-split-left an-card">
+              <div className="an-card-header-row">
+                <div className="an-card-title" style={{ marginBottom: 0 }}>📋 Test History</div>
+                <div className="an-sort-btns">
+                  {[["newest", "New"], ["best", "Best"], ["worst", "Worst"]].map(([k, l]) => (
+                    <button key={k} className={`an-sort-btn ${sort === k ? "active" : ""}`} onClick={() => setSort(k)}>{l}</button>
+                  ))}
+                </div>
+              </div>
+              <div className="an-test-list-scroll">
+                {sorted.map((s, i) => {
+                  const pct = Math.round(s.score / s.total * 100);
+                  const isSel = detail === s;
+                  return (
+                    <button key={i} className={`an-test-row ${isSel ? "selected" : ""}`} onClick={() => setDetail(s)}>
+                      <div className="an-test-left">
+                        <span className="an-test-topic">{s.topic}</span>
+                        <span className="an-test-date">{s.date}</span>
+                      </div>
+                      <div className="an-test-right">
+                        <div className="an-test-bar-wrap">
+                          <div className="an-test-bar-fill" style={{ width: `${pct}%`, background: pct >= 80 ? "#22c55e" : pct >= 60 ? "#f59e0b" : "#ef4444" }} />
+                        </div>
+                        <span className="an-test-score">{s.score}/{s.total}</span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Right: Test Detail */}
+            <div className="an-split-right an-card">
+              {detail ? (
+                <div className="an-detail-content">
+                  <div className="an-detail-header">
+                    <h3>{detail.topic}</h3>
+                    <span className="an-detail-date">{detail.date}</span>
+                  </div>
+
+                  {(() => {
+                    const h = detail.history || [];
+                    const pct = Math.round(detail.score / detail.total * 100);
+                    return (
+                      <>
+                        <div className={`performance-badge ${scoreBadgeClass(pct)}`}>{scoreBadgeLabel(pct)}</div>
+                        <div className="an-overview-row">
+                          <div className="an-overview-donut">
+                            <DonutChart correct={detail.score} total={detail.total} />
+                            <div className={`an-pct-label ${pct >= 80 ? "good" : pct >= 50 ? "mid" : "bad"}`}>{pct}%</div>
+                          </div>
+                          <div className="an-overview-stats">
+                            <div className="an-ov-stat"><span className="an-ov-val" style={{ color: "#22c55e" }}>{h.filter(x => x.isCorrect || (x.score >= (x.max_score || 10) * .6)).length}</span><span className="an-ov-lbl">Strong Answers</span></div>
+                            <div className="an-ov-stat"><span className="an-ov-val" style={{ color: "#ef4444" }}>{h.filter(x => !(x.isCorrect || (x.score >= (x.max_score || 10) * .6))).length}</span><span className="an-ov-lbl">Needs Improvement</span></div>
+                          </div>
+                        </div>
+
+                        <div className="an-detail-q-list">
+                          <div className="an-card-title" style={{ fontSize: "0.95rem", marginBottom: 12 }}>Question Breakdown</div>
+                          <table className="results-table compact">
+                            <thead><tr><th>#</th><th>Question</th><th>Level</th><th>Result</th></tr></thead>
+                            <tbody>
+                              {h.map((q, i) => (
+                                <tr key={i} className={(q.isCorrect || (q.score >= (q.max_score || 10) * .6)) ? "row-correct" : "row-wrong"}>
+                                  <td>{i + 1}</td>
+                                  <td className="q-cell" title={q.question}>{(q.question || "").substring(0, 60)}{q.question?.length > 60 ? "…" : ""}</td>
+                                  <td><span className="level-chip" style={{ background: LEVEL_META[q.level || 1]?.color || "#f97316" }}>L{q.level || 1}</span></td>
+                                  <td>{q.isCorrect ? "✅" : q.score !== undefined ? `${q.score}/${q.max_score}` : "❌"}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+              ) : (
+                <div className="an-empty-detail">Select a test from the left to view details</div>
+              )}
+            </div>
+          </div>
         </div>
-      </div>
-      <div className="an-card">
-        <div className="an-card-title">📋 Question Breakdown</div>
-        <table className="results-table">
-          <thead><tr><th>#</th><th>Question</th><th>Level</th><th>Result</th></tr></thead>
-          <tbody>{h.map((q, i) => (<tr key={i} className={(q.isCorrect || (q.score >= (q.max_score || 10) * .6)) ? "row-correct" : "row-wrong"}><td>{i + 1}</td><td className="q-cell">{(q.question || "").substring(0, 80)}{q.question?.length > 80 ? "…" : ""}</td><td><span className="level-chip" style={{ background: LEVEL_META[q.level || 1]?.color || "#f97316" }}>L{q.level || 1}</span></td><td>{q.isCorrect ? "✅" : q.score !== undefined ? `${q.score}/${q.max_score}` : "❌"}</td></tr>))}</tbody>
-        </table>
-      </div>
+      )}
     </div>
   );
 }
