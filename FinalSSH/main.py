@@ -91,6 +91,20 @@ level3_agent = (
     .register(create_level3_eval_tool(client))       # → tool name: "evaluate_scenario"
 )
 
+# ── Interview Agent ───────────────────────────────────────────────────────────
+from tools.interview_tool import (
+    create_interview_question_tool,
+    create_interview_eval_tool,
+    create_interview_analysis_tool,
+)
+
+interview_agent = (
+    QuizAgent(client)
+    .register(create_interview_question_tool(client))
+    .register(create_interview_eval_tool(client))
+    .register(create_interview_analysis_tool(client))
+)
+
 # ── Expected response time per level × difficulty (ms) ───────────────────────
 EXPECTED_TIME_MS = {
     1: {"easy":  15_000, "medium":  25_000, "hard":  45_000},
@@ -393,5 +407,123 @@ def l3_evaluate():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  AI INTERVIEW ROUTES  (Voice/Text one-on-one assessment)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.route("/interview/start", methods=["POST"])
+def interview_start():
+    """
+    Begin an AI interview session. Returns the first question.
+    Payload: { topic, proficiency?, total_questions? }
+    """
+    data        = request.get_json()
+    topic       = data.get("topic", "General Knowledge")
+    proficiency = data.get("proficiency", "intermediate")
+    total       = int(data.get("total_questions", 5))
+    try:
+        q = interview_agent.call(
+            "generate_interview_question",
+            topic=topic, proficiency=proficiency,
+            question_num=1, total=total, asked_questions=[],
+        )
+        return jsonify({"question": q, "question_num": 1})
+    except Exception as e:
+        logging.exception("interview_start failed: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/interview/transcribe", methods=["POST"])
+def interview_transcribe():
+    """
+    Transcribe audio using Groq Whisper.
+    Accepts multipart/form-data with an 'audio' file field.
+    Returns: { transcript: str }
+    """
+    if "audio" not in request.files:
+        return jsonify({"error": "No audio file in request"}), 400
+    audio_file = request.files["audio"]
+    audio_bytes = audio_file.read()
+    if not audio_bytes:
+        return jsonify({"error": "Empty audio file"}), 400
+    try:
+        transcription = client.audio.transcriptions.create(
+            file=(audio_file.filename or "recording.webm", audio_bytes, "audio/webm"),
+            model="whisper-large-v3",
+            response_format="text",
+            language="en",
+            temperature=0.0,
+        )
+        # Groq returns the transcript string directly for response_format="text"
+        return jsonify({"transcript": transcription if isinstance(transcription, str) else transcription.text})
+    except Exception as e:
+        logging.exception("Whisper transcription failed: %s", e)
+        return jsonify({"error": f"Transcription failed: {str(e)}"}), 500
+
+
+@app.route("/interview/evaluate", methods=["POST"])
+def interview_evaluate():
+    """
+    Semantically evaluate a candidate's spoken/typed answer.
+    Payload: { question, user_answer, expected_concepts[], proficiency? }
+    """
+    data = request.get_json(force=True)
+    try:
+        result = interview_agent.call(
+            "evaluate_interview_answer",
+            question=data.get("question", ""),
+            user_answer=data.get("user_answer", ""),
+            expected_concepts=data.get("expected_concepts", []),
+            proficiency=data.get("proficiency", "intermediate"),
+        )
+        return jsonify(result)
+    except Exception as e:
+        logging.exception("interview_evaluate failed: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/interview/next", methods=["POST"])
+def interview_next():
+    """
+    Generate the next interview question.
+    Payload: { topic, proficiency, question_num, total_questions, asked_questions[] }
+    """
+    data = request.get_json()
+    try:
+        q = interview_agent.call(
+            "generate_interview_question",
+            topic=data.get("topic", "General Knowledge"),
+            proficiency=data.get("proficiency", "intermediate"),
+            question_num=int(data.get("question_num", 2)),
+            total=int(data.get("total_questions", 5)),
+            asked_questions=data.get("asked_questions", []),
+        )
+        return jsonify({"question": q, "question_num": data.get("question_num", 2)})
+    except Exception as e:
+        logging.exception("interview_next failed: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/interview/analyze", methods=["POST"])
+def interview_analyze():
+    """
+    Generate a comprehensive performance analysis after the interview.
+    Payload: { topic, proficiency, history: [{question, user_answer, score, grade, concepts_missing}] }
+    """
+    data = request.get_json(force=True)
+    try:
+        analysis = interview_agent.call(
+            "generate_interview_analysis",
+            topic=data.get("topic", "General Knowledge"),
+            interview_history=data.get("history", []),
+            proficiency=data.get("proficiency", "intermediate"),
+        )
+        return jsonify(analysis)
+    except Exception as e:
+        logging.exception("interview_analyze failed: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
     app.run(debug=True, port=8000)
+

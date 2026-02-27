@@ -281,7 +281,7 @@ function Sidebar({ screen, setScreen, sessions, onReview }) {
     { id: "start", label: "Dashboard", icon: "⊞" },
     { id: "quizzes", label: "Past Quizzes", icon: "🕐" },
     { id: "analytics", label: "Analytics", icon: "📊" },
-    { id: "saved", label: "Saved Topics", icon: "🔖" },
+    { id: "interview", label: "AI Interview", icon: "🎙️" },
   ];
   const [showSessions, setShowSessions] = useState(false);
   return (
@@ -420,9 +420,274 @@ function ReviewModal({ session, onClose }) {
   );
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   MAIN APP
-   ═══════════════════════════════════════════════════════════════ */
+/* \u2500\u2500 InterviewScreen \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
+function InterviewScreen({ globalTopic, globalProficiency, onExit }) {
+  const [phase, setPhase] = useState("setup");
+  const [ivTopic, setIvTopic] = useState(globalTopic || "");
+  const [ivProf, setIvProf] = useState(globalProficiency || "intermediate");
+  const [ivNumQ, setIvNumQ] = useState(5);
+  const [qNum, setQNum] = useState(0);
+  const [currentQ, setCurrentQ] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [history, setHistory] = useState([]);
+  const [askedQs, setAskedQs] = useState([]);
+  const [isRecording, setIsRecording] = useState(false);
+  const [status, setStatus] = useState("idle");
+  const [transcript, setTranscript] = useState("");
+  const [analysis, setAnalysis] = useState(null);
+  const [analysisPending, setAnalysisPending] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const mediaRef = useRef(null);
+  const chunksRef = useRef([]);
+  const chatRef = useRef(null);
+
+  useEffect(() => { chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight, behavior: "smooth" }); }, [messages]);
+
+  function speakText(text) {
+    if (isMuted || !window.speechSynthesis) return;
+    window.speechSynthesis.cancel(); // stop previous
+    const u = new SpeechSynthesisUtterance(text);
+    // try to find a good English voice
+    const voices = window.speechSynthesis.getVoices();
+    const voice = voices.find(v => v.lang.startsWith("en-") && (v.name.includes("Google") || v.name.includes("Natural") || v.name.includes("Premium"))) || voices.find(v => v.lang.startsWith("en-"));
+    if (voice) u.voice = voice;
+    u.rate = 1.05;
+    u.pitch = 1.0;
+    window.speechSynthesis.speak(u);
+  }
+
+  // Ensure voices are loaded (Chrome bug workaround)
+  useEffect(() => { window.speechSynthesis.getVoices(); }, []);
+
+  function addMsg(msg) {
+    setMessages(prev => [...prev, msg]);
+    if (msg.type === "ai" && msg.text) speakText(msg.text);
+  }
+  const gradeCol = g => g === "Excellent" ? "#22c55e" : g === "Good" ? "#6366f1" : g === "Partial" ? "#f59e0b" : "#ef4444";
+  const ivSliderPct = ((ivNumQ - 3) / (10 - 3)) * 100;
+
+  async function startInterview() {
+    if (!ivTopic.trim()) return;
+    setStatus("loading-q");
+    try {
+      const d = await fetch(`${API}/interview/start`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ topic: ivTopic, proficiency: ivProf, total_questions: ivNumQ }),
+      }).then(r => r.json());
+      if (d.error) throw new Error(d.error);
+      setCurrentQ(d.question); setQNum(1); setAskedQs([d.question.question]);
+      addMsg({ type: "ai", text: d.question.question, qData: d.question });
+      setPhase("interview");
+    } catch (e) { addMsg({ type: "error", text: `Failed to start: ${e.message}` }); }
+    setStatus("idle");
+  }
+
+  async function startRecording() {
+    if (status !== "idle") return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mt = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus"
+        : MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "audio/mp4";
+      const mr = new MediaRecorder(stream, { mimeType: mt });
+      chunksRef.current = [];
+      mr.ondataavailable = e => chunksRef.current.push(e.data);
+      mr.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        const blob = new Blob(chunksRef.current, { type: mt });
+        setStatus("transcribing");
+        const fd = new FormData(); fd.append("audio", blob, "recording.webm");
+        try {
+          const r = await fetch(`${API}/interview/transcribe`, { method: "POST", body: fd }).then(r => r.json());
+          if (r.error) throw new Error(r.error);
+          setTranscript(r.transcript || "");
+        } catch (e) { addMsg({ type: "error", text: `Transcription error: ${e.message}` }); }
+        setStatus("idle");
+      };
+      mr.start(); mediaRef.current = mr; setIsRecording(true); setStatus("recording");
+    } catch (e) { addMsg({ type: "error", text: `Mic error: ${e.message}. Type your answer instead.` }); }
+  }
+
+  function stopRecording() { if (mediaRef.current && isRecording) { mediaRef.current.stop(); setIsRecording(false); } }
+
+  async function submitAnswer() {
+    const ans = transcript.trim();
+    if (!ans || !currentQ) return;
+    addMsg({ type: "user", text: ans }); setTranscript(""); setStatus("evaluating");
+    try {
+      const ev = await fetch(`${API}/interview/evaluate`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question: currentQ.question, user_answer: ans,
+          expected_concepts: currentQ.expected_concepts || [], proficiency: ivProf
+        }),
+      }).then(r => r.json());
+      const entry = { question: currentQ.question, user_answer: ans, score: ev.score, grade: ev.grade, concepts_missing: ev.concepts_missing || [] };
+      const newHistory = [...history, entry]; setHistory(newHistory);
+      addMsg({ type: "eval", data: ev });
+      if (qNum >= ivNumQ) {
+        setStatus("analyzing"); setAnalysisPending(true);
+        try {
+          const a = await fetch(`${API}/interview/analyze`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ topic: ivTopic, proficiency: ivProf, history: newHistory }),
+          }).then(r => r.json());
+          setAnalysis(a);
+        } catch { setAnalysis({ summary: "Analysis unavailable.", strengths: [], improvement_areas: [], study_plan: [] }); }
+        setAnalysisPending(false); setPhase("results");
+      } else {
+        setStatus("loading-q"); const nq = qNum + 1;
+        const nr = await fetch(`${API}/interview/next`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            topic: ivTopic, proficiency: ivProf, question_num: nq,
+            total_questions: ivNumQ, asked_questions: askedQs
+          }),
+        }).then(r => r.json());
+        if (nr.error) throw new Error(nr.error);
+        setCurrentQ(nr.question); setQNum(nq); setAskedQs(prev => [...prev, nr.question.question]);
+        addMsg({ type: "ai", text: nr.question.question, qData: nr.question });
+      }
+    } catch (e) { addMsg({ type: "error", text: `Error: ${e.message}` }); }
+    setStatus("idle");
+  }
+
+  if (phase === "setup") return (
+    <div className="iv-setup">
+      <h2 className="iv-setup-title">🎙️ AI Interview Mode</h2>
+      <p className="iv-setup-sub">One-on-one with an AI interviewer. Speak your answers — Whisper AI transcribes in real-time, then semantically evaluates your response.</p>
+      <div className="iv-setup-card">
+        <div className="iv-field"><label>Topic</label>
+          <input className="iv-input" placeholder="e.g. Python, React, System Design…" value={ivTopic} onChange={e => setIvTopic(e.target.value)} />
+        </div>
+        <div className="iv-field"><label>Proficiency Level</label>
+          <div className="iv-prof-btns">{["beginner", "intermediate", "advanced"].map(p => (
+            <button key={p} className={`iv-prof-btn ${ivProf === p ? "active" : ""}`} onClick={() => setIvProf(p)}>
+              {p.charAt(0).toUpperCase() + p.slice(1)}
+            </button>
+          ))}</div>
+        </div>
+        <div className="iv-field">
+          <div className="qs-header"><span className="qs-label">Number of Questions</span><span className="qs-badge">{ivNumQ}</span></div>
+          <div className="qs-slider-wrap"><input type="range" className="qs-slider" min={3} max={10} step={1} value={ivNumQ} style={{ "--pct": `${ivSliderPct}%` }} onChange={e => setIvNumQ(+e.target.value)} /></div>
+          <div className="qs-ticks"><span>3</span><span>5</span><span>7</span><span>10</span></div>
+        </div>
+        <button className="start-btn" onClick={startInterview} disabled={!ivTopic.trim() || status === "loading-q"}>
+          {status === "loading-q" ? "Loading…" : <><span>Start Interview</span><span className="start-btn-icon">🚀</span></>}
+        </button>
+        <button className="btn secondary" onClick={onExit} style={{ marginTop: 8 }}>← Back to Dashboard</button>
+      </div>
+    </div>
+  );
+
+  if (phase === "results") return (
+    <div className="iv-results">
+      <div className="iv-results-header"><h2>Interview Complete 🎉</h2><button className="btn secondary" onClick={onExit}>← Dashboard</button></div>
+      {analysisPending ? (
+        <div className="loading-state"><div className="spinner" /><p>Generating your analysis…</p></div>
+      ) : analysis && (<>
+        <div className="iv-analysis-hero">
+          <div className="iv-score-ring">
+            <svg width={110} height={110}>
+              <circle cx={55} cy={55} r={40} fill="none" stroke="#f1f5f9" strokeWidth={11} />
+              <circle cx={55} cy={55} r={40} fill="none" stroke="#f97316" strokeWidth={11}
+                strokeDasharray={`${((analysis.overall_score || 0) / 100) * 2 * Math.PI * 40} ${2 * Math.PI * 40}`}
+                strokeDashoffset={2 * Math.PI * 40 / 4} strokeLinecap="round" style={{ transition: "stroke-dasharray 1.2s ease" }} />
+              <text x={55} y={50} textAnchor="middle" fontSize="17" fontWeight="900" fill="#111">{analysis.overall_score ?? 0}</text>
+              <text x={55} y={65} textAnchor="middle" fontSize="9" fill="#94a3b8">/ 100</text>
+            </svg>
+          </div>
+          <div><div className="iv-perf-badge">{analysis.performance_level}</div><p className="iv-summary">{analysis.summary}</p></div>
+        </div>
+        <div className="iv-analysis-grid">
+          <div className="iv-analysis-card"><div className="iv-ac-title">✅ Strengths</div><ul>{(analysis.strengths || []).map((s, i) => <li key={i}>{s}</li>)}</ul></div>
+          <div className="iv-analysis-card"><div className="iv-ac-title">📈 Improve</div><ul>{(analysis.improvement_areas || []).map((s, i) => <li key={i}>{s}</li>)}</ul></div>
+        </div>
+        {analysis.topic_coverage && (
+          <div className="iv-analysis-card">
+            <div className="iv-ac-title">📚 Topic Coverage</div>
+            <div className="iv-coverage-row"><span className="iv-cov-label ok">Strong</span>{(analysis.topic_coverage.strong || []).map((t, i) => <span key={i} className="iv-cov-tag green">{t}</span>)}</div>
+            <div className="iv-coverage-row" style={{ marginTop: 6 }}><span className="iv-cov-label bad">Weak</span>{(analysis.topic_coverage.weak || []).map((t, i) => <span key={i} className="iv-cov-tag red">{t}</span>)}</div>
+          </div>
+        )}
+        <div className="iv-analysis-card"><div className="iv-ac-title">🎯 Recommendation</div><p className="iv-recom-text">{analysis.recommendation}</p></div>
+        <div className="iv-analysis-card"><div className="iv-ac-title">📋 Study Plan</div><ol className="iv-study-plan">{(analysis.study_plan || []).map((s, i) => <li key={i}>{s}</li>)}</ol></div>
+        <button className="start-btn" onClick={onExit} style={{ marginTop: 16 }}>← Back to Dashboard</button>
+      </>)}
+    </div>
+  );
+
+  return (
+    <div className="iv-screen">
+      <div className="iv-header">
+        <div className="iv-header-left">
+          <button className="iv-back-btn" onClick={() => { setPhase("setup"); setMessages([]); setHistory([]); setTranscript(""); }}>←</button>
+          <div><div className="iv-header-topic">{ivTopic}</div><div className="iv-header-sub">{ivProf} · Q {qNum} of {ivNumQ}</div></div>
+        </div>
+        <div className="iv-header-right">
+          <button className="iv-mute-btn" onClick={() => {
+            setIsMuted(!isMuted);
+            if (!isMuted) window.speechSynthesis.cancel();
+          }}>
+            {isMuted ? "🔇 Muted" : "🔊 Unmute"}
+          </button>
+          <div className="iv-progress-dots">
+            {Array.from({ length: ivNumQ }, (_, i) => (<div key={i} className={`iv-dot${i < qNum - 1 ? " done" : i === qNum - 1 ? " active" : ""}`} />))}
+          </div>
+        </div>
+      </div>
+
+      <div className="iv-chat" ref={chatRef}>
+        {messages.map((msg, i) => (
+          <div key={i}>
+            {msg.type === "ai" && <div className="iv-ai-bubble"><div className="iv-ai-avatar">🤖</div><div className="iv-bubble-inner"><div className="iv-bubble-name">AI Interviewer</div><div className="iv-bubble-text">{msg.text}</div></div></div>}
+            {msg.type === "user" && <div className="iv-user-bubble"><div className="iv-bubble-inner right"><div className="iv-bubble-name right">You</div><div className="iv-bubble-text right">{msg.text}</div></div></div>}
+            {msg.type === "eval" && (
+              <div className="iv-eval-bubble">
+                <div className="iv-eval-top">
+                  <span className="iv-eval-grade-pill" style={{ color: gradeCol(msg.data.grade), background: gradeCol(msg.data.grade) + "18", border: `1px solid ${gradeCol(msg.data.grade)}44` }}>{msg.data.grade}</span>
+                  <span className="iv-eval-score">{msg.data.score}/10</span>
+                </div>
+                <p className="iv-eval-text">{msg.data.feedback}</p>
+                {msg.data.concepts_covered?.length > 0 && <div className="iv-tag-row"><span className="iv-tag-lbl ok">✓ Got it</span>{msg.data.concepts_covered.map((c, j) => <span key={j} className="iv-tag green">{c}</span>)}</div>}
+                {msg.data.concepts_missing?.length > 0 && <div className="iv-tag-row"><span className="iv-tag-lbl bad">✗ Missed</span>{msg.data.concepts_missing.map((c, j) => <span key={j} className="iv-tag red">{c}</span>)}</div>}
+                <details className="iv-model-toggle"><summary>💡 Model Answer</summary><p className="iv-model-text">{msg.data.complete_answer}</p></details>
+                {msg.data.encouragement && <p className="iv-encourage">{msg.data.encouragement}</p>}
+              </div>
+            )}
+            {msg.type === "error" && <div className="iv-error-msg">{msg.text}</div>}
+          </div>
+        ))}
+        {["evaluating", "loading-q", "analyzing"].includes(status) && (
+          <div className="iv-ai-bubble"><div className="iv-ai-avatar">🤖</div><div className="iv-bubble-inner">
+            <div className="iv-typing"><span /><span /><span /></div>
+            <div className="iv-status-label">{status === "evaluating" ? "Evaluating your answer…" : status === "loading-q" ? "Preparing next question…" : "Generating your analysis…"}</div>
+          </div></div>
+        )}
+      </div>
+
+      <div className="iv-input-area">
+        <textarea className="iv-textarea" rows={3} value={transcript} onChange={e => setTranscript(e.target.value)}
+          placeholder={isRecording ? "🔴 Recording… speak now." : status === "transcribing" ? "Transcribing with Whisper…" : "Transcription appears here, or type your answer…"}
+          disabled={isRecording || ["transcribing", "evaluating", "loading-q"].includes(status)} />
+        <div className="iv-controls">
+          <div className="iv-mic-wrap">
+            <button className={`iv-mic-btn${isRecording ? " active" : ""}`}
+              onMouseDown={startRecording} onMouseUp={stopRecording}
+              onTouchStart={e => { e.preventDefault(); startRecording(); }} onTouchEnd={e => { e.preventDefault(); stopRecording(); }}
+              disabled={["transcribing", "evaluating", "loading-q"].includes(status)}>
+              {isRecording ? "⏹" : status === "transcribing" ? "⟳" : "🎤"}
+            </button>
+            <span className="iv-mic-hint">{isRecording ? "Release to stop" : "Hold to record"}</span>
+          </div>
+          <button className="iv-submit-btn" onClick={submitAnswer} disabled={!transcript.trim() || status !== "idle"}>
+            {status === "evaluating" ? "Evaluating…" : "Submit ↩"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [screen, setScreen] = useState("start");
   const [topic, setTopic] = useState("");
@@ -595,6 +860,9 @@ export default function App() {
 
           {/* ── Analytics ── */}
           {screen === "analytics" && <div className="an-wrapper"><AnalyticsDashboard sessions={sessions} onBack={() => setScreen("start")} /></div>}
+
+          {/* ── AI Interview ── */}
+          {screen === "interview" && <InterviewScreen globalTopic={topic} globalProficiency={proficiency} onExit={() => setScreen("start")} />}
 
           {/* ── Start Screen ── */}
           {screen === "start" && (
