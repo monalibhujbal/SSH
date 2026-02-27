@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import "./App.css";
+import { PieChart, Pie, Cell, ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, BarChart, Bar } from 'recharts';
+// jsPDF and html2canvas will be loaded dynamically to avoid build-time resolution issues
 
 const API = "http://localhost:8000";
 const STORAGE_KEY = "mcq_quiz_sessions";
@@ -44,7 +46,6 @@ function gradeColor(g) { return g === "Excellent" ? "#22c55e" : g === "Good" ? "
 function scoreBadgeClass(p) { return p >= 80 ? "badge-excellent" : p >= 60 ? "badge-good" : p >= 40 ? "badge-fair" : "badge-poor"; }
 function scoreBadgeLabel(p) { return p >= 80 ? "Excellent 🏆" : p >= 60 ? "Good 👍" : p >= 40 ? "Fair 💪" : "Needs Work 📖"; }
 
-import { PieChart, Pie, Cell, ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 
 /* ── DonutChart ───────────────────────────────────────────────── */
 function DonutChart({ correct, total, color = "#f97316" }) {
@@ -225,138 +226,210 @@ function LevelProgressBar({ currentLevel, recentScores }) {
 
 /* ── Interactive Analytics Dashboard ────────────────────────────── */
 function AnalyticsDashboard({ sessions, onBack }) {
+  const [data, setData] = useState({ skills: [], sessions: [], overall: {} });
+  const [loading, setLoading] = useState(true);
   const [sort, setSort] = useState("newest");
-  const sorted = useMemo(() => {
-    return [...sessions].sort((a, b) =>
-      sort === "best" ? (b.score / b.total) - (a.score / a.total) :
-        sort === "worst" ? (a.score / a.total) - (b.score / b.total) :
-          sort === "topic" ? a.topic.localeCompare(b.topic) : 0
+  const reportRef = useRef(null);
+
+  const fetchAnalytics = async () => {
+    setLoading(true);
+    try {
+      const resp = await fetch(`${API}/analytics/summary?userId=anonymous`);
+      const res = await resp.json();
+      setData(res);
+    } catch (e) { console.error("Failed to fetch analytics", e); }
+    setLoading(false);
+  };
+
+  useEffect(() => { fetchAnalytics(); }, []);
+
+  const downloadReport = async () => {
+    try {
+      const { jsPDF } = await import("jspdf");
+      const html2canvas = (await import("html2canvas")).default;
+      
+      const element = reportRef.current;
+      const canvas = await html2canvas(element, { scale: 2 });
+      const imgData = canvas.toDataURL("image/png");
+      const pdf = new jsPDF("p", "mm", "a4");
+      const imgProps = pdf.getImageProperties(imgData);
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+      pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight);
+      pdf.save("Progress_Report.pdf");
+    } catch (e) {
+      console.error("Failed to load PDF libraries", e);
+      alert("PDF libraries are still installing or could not be loaded. Please try again in a moment.");
+    }
+  };
+
+  const sortedSessions = useMemo(() => {
+    return [...data.sessions].sort((a, b) =>
+      sort === "best" ? b.percentage - a.percentage :
+        sort === "worst" ? a.percentage - b.percentage :
+          sort === "topic" ? a.topic.localeCompare(b.topic) : 
+          new Date(b.created_at) - new Date(a.created_at)
     );
-  }, [sessions, sort]);
+  }, [data.sessions, sort]);
 
-  const [detail, setDetail] = useState(sorted[0] || null);
+  const [detail, setDetail] = useState(null);
+  useEffect(() => { if (!detail && sortedSessions.length > 0) setDetail(sortedSessions[0]); }, [sortedSessions]);
 
-  // Default to newest if the selected detail is removed or sort changes
-  useEffect(() => {
-    if (!detail && sorted.length > 0) setDetail(sorted[0]);
-  }, [sorted, detail]);
+  if (loading) return <div className="an-page"><div className="loading-state"><div className="spinner" /><p>Crunching your data...</p></div></div>;
 
-  const totalQ = sessions.reduce((s, x) => s + (x.history || []).length, 0);
-  const avgScore = sessions.length ? Math.round(sessions.reduce((s, x) => s + x.score / x.total, 0) / sessions.length * 100) : 0;
-  const bestScore = sessions.length ? Math.max(...sessions.map(s => Math.round(s.score / s.total * 100))) : 0;
+  const sortedByScore = [...data.skills].sort((a, b) => b.avg_score - a.avg_score);
+  const strengths = sortedByScore.slice(0, 3).filter(s => s.avg_score > 0);
+  const weaknesses = [...sortedByScore].reverse().slice(0, 3).filter(s => s.avg_score < 100);
+
+  if (data.sessions.length === 0) {
+    return (
+      <div className="an-page">
+         <div className="an-page-header">
+            <button className="an-back-btn" onClick={onBack}>← Dashboard</button>
+            <h2>Learning Analytics</h2>
+         </div>
+         <div className="an-empty-state">
+            <div className="an-empty-icon">📊</div>
+            <p>No assessment data found yet.</p>
+            <p className="an-empty-sub">Complete a quiz or AI interview to see your skills breakdown here in real-time.</p>
+         </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="an-page">
+    <div className="an-page" ref={reportRef}>
       <div className="an-page-header">
-        <button className="an-back-btn" onClick={onBack}>← Dashboard</button>
-        <h2>Interactive Analytics</h2>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+          <button className="an-back-btn" onClick={onBack}>← Dashboard</button>
+          <h2>Learning Analytics</h2>
+        </div>
+        <button className="btn primary" onClick={downloadReport}>📥 Download Report</button>
       </div>
 
-      {sessions.length === 0 ? (
-        <div className="an-empty-state"><div className="an-empty-icon">📊</div><p>No quizzes yet.</p><p className="an-empty-sub">Complete a quiz and come back!</p></div>
-      ) : (
-        <div className="an-dashboard-grid">
-          {/* Top: Global Stats */}
-          <div className="an-global-stats">
-            <StatCard icon="📝" label="Total Quizzes" value={sessions.length} color="#f97316" />
-            <StatCard icon="❓" label="Total Questions" value={totalQ} color="#8b5cf6" />
-            <StatCard icon="📊" label="Average Score" value={avgScore} color="#f59e0b" suffix="%" />
-            <StatCard icon="🏆" label="Best Score" value={bestScore} color="#22c55e" suffix="%" />
-          </div>
+      <div className="an-dashboard-grid">
+        {/* Top: Global Stats */}
+        <div className="an-global-stats">
+          <StatCard icon="📝" label="Total Attempts" value={data.overall.total_assessments || 0} color="#f97316" />
+          <StatCard icon="📊" label="Avg Accuracy" value={Math.round(data.overall.avg_percentage || 0)} color="#f59e0b" suffix="%" />
+          <StatCard icon="🏆" label="Peak Performance" value={Math.round(data.overall.best_percentage || 0)} color="#22c55e" suffix="%" />
+        </div>
 
-          {/* Middle: Trend Line */}
-          <div className="an-card an-trend-card">
-            <div className="an-card-title">📈 Overall Performance Trend</div>
-            {sessions.length >= 2 ? <TrendChart sessions={sessions} /> : <p className="an-hint">Complete 2+ quizzes to see your trend</p>}
-          </div>
-
-          {/* Bottom: Split View (List + Detail) */}
-          <div className="an-split-view">
-            {/* Left: Test List */}
-            <div className="an-split-left an-card">
-              <div className="an-card-header-row">
-                <div className="an-card-title" style={{ marginBottom: 0 }}>📋 Test History</div>
-                <div className="an-sort-btns">
-                  {[["newest", "New"], ["best", "Best"], ["worst", "Worst"]].map(([k, l]) => (
-                    <button key={k} className={`an-sort-btn ${sort === k ? "active" : ""}`} onClick={() => setSort(k)}>{l}</button>
-                  ))}
-                </div>
-              </div>
-              <div className="an-test-list-scroll">
-                {sorted.map((s, i) => {
-                  const pct = Math.round(s.score / s.total * 100);
-                  const isSel = detail === s;
-                  return (
-                    <button key={i} className={`an-test-row ${isSel ? "selected" : ""}`} onClick={() => setDetail(s)}>
-                      <div className="an-test-left">
-                        <span className="an-test-topic">{s.topic}</span>
-                        <span className="an-test-date">{s.date}</span>
-                      </div>
-                      <div className="an-test-right">
-                        <div className="an-test-bar-wrap">
-                          <div className="an-test-bar-fill" style={{ width: `${pct}%`, background: pct >= 80 ? "#22c55e" : pct >= 60 ? "#f59e0b" : "#ef4444" }} />
-                        </div>
-                        <span className="an-test-score">{s.score}/{s.total}</span>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
+        {/* Middle: Skill Visualization */}
+        <div className="an-flex-row">
+          <div className="an-card an-radar-card">
+            <div className="an-card-title">🕸️ Skill Proficiency (radar)</div>
+            <div style={{ width: '100%', height: 300 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <RadarChart cx="50%" cy="50%" outerRadius="80%" data={data.skills.slice(0, 6)}>
+                  <PolarGrid stroke="#e2e8f0" />
+                  <PolarAngleAxis dataKey="skill" tick={{ fontSize: 10, fill: '#64748b' }} />
+                  <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
+                  <Radar name="Proficiency" dataKey="avg_score" stroke="#f97316" fill="#f97316" fillOpacity={0.5} />
+                  <Tooltip />
+                </RadarChart>
+              </ResponsiveContainer>
             </div>
+          </div>
 
-            {/* Right: Test Detail */}
-            <div className="an-split-right an-card">
-              {detail ? (
-                <div className="an-detail-content">
-                  <div className="an-detail-header">
-                    <h3>{detail.topic}</h3>
-                    <span className="an-detail-date">{detail.date}</span>
-                  </div>
-
-                  {(() => {
-                    const h = detail.history || [];
-                    const pct = Math.round(detail.score / detail.total * 100);
-                    return (
-                      <>
-                        <div className={`performance-badge ${scoreBadgeClass(pct)}`}>{scoreBadgeLabel(pct)}</div>
-                        <div className="an-overview-row">
-                          <div className="an-overview-donut">
-                            <DonutChart correct={detail.score} total={detail.total} />
-                            <div className={`an-pct-label ${pct >= 80 ? "good" : pct >= 50 ? "mid" : "bad"}`}>{pct}%</div>
-                          </div>
-                          <div className="an-overview-stats">
-                            <div className="an-ov-stat"><span className="an-ov-val" style={{ color: "#22c55e" }}>{h.filter(x => x.isCorrect || (x.score >= (x.max_score || 10) * .6)).length}</span><span className="an-ov-lbl">Strong Answers</span></div>
-                            <div className="an-ov-stat"><span className="an-ov-val" style={{ color: "#ef4444" }}>{h.filter(x => !(x.isCorrect || (x.score >= (x.max_score || 10) * .6))).length}</span><span className="an-ov-lbl">Needs Improvement</span></div>
-                          </div>
-                        </div>
-
-                        <div className="an-detail-q-list">
-                          <div className="an-card-title" style={{ fontSize: "0.95rem", marginBottom: 12 }}>Question Breakdown</div>
-                          <table className="results-table compact">
-                            <thead><tr><th>#</th><th>Question</th><th>Level</th><th>Result</th></tr></thead>
-                            <tbody>
-                              {h.map((q, i) => (
-                                <tr key={i} className={(q.isCorrect || (q.score >= (q.max_score || 10) * .6)) ? "row-correct" : "row-wrong"}>
-                                  <td>{i + 1}</td>
-                                  <td className="q-cell" title={q.question}>{(q.question || "").substring(0, 60)}{q.question?.length > 60 ? "…" : ""}</td>
-                                  <td><span className="level-chip" style={{ background: LEVEL_META[q.level || 1]?.color || "#f97316" }}>L{q.level || 1}</span></td>
-                                  <td>{q.isCorrect ? "✅" : q.score !== undefined ? `${q.score}/${q.max_score}` : "❌"}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </>
-                    );
-                  })()}
-                </div>
-              ) : (
-                <div className="an-empty-detail">Select a test from the left to view details</div>
-              )}
+          <div className="an-card an-sw-card">
+            <div className="an-card-title">⚖️ Strengths & Weaknesses</div>
+            <div className="sw-container">
+              <div className="sw-box strength">
+                <div className="sw-label">Top Strengths</div>
+                {strengths.length ? strengths.map(s => <div key={s.skill} className="sw-item"><span>{s.skill}</span><b>{Math.round(s.avg_score)}%</b></div>) : <p className="sw-none">None yet</p>}
+              </div>
+              <div className="sw-box weakness">
+                <div className="sw-label">Improvement Areas</div>
+                {weaknesses.length ? weaknesses.map(s => <div key={s.skill} className="sw-item"><span>{s.skill}</span><b>{Math.round(s.avg_score)}%</b></div>) : <p className="sw-none">Doing great!</p>}
+              </div>
             </div>
           </div>
         </div>
-      )}
+
+        {/* Bottom: Split View (List + Detail) */}
+        <div className="an-split-view">
+          <div className="an-split-left an-card">
+            <div className="an-card-header-row">
+              <div className="an-card-title">📋 Activity History</div>
+              <div className="an-sort-btns">
+                {["newest", "best", "worst"].map(k => (
+                  <button key={k} className={`an-sort-btn ${sort === k ? "active" : ""}`} onClick={() => setSort(k)}>{k}</button>
+                ))}
+              </div>
+            </div>
+            <div className="an-test-list-scroll">
+              {sortedSessions.map((s, i) => (
+                <button key={s.session_id} className={`an-test-row ${detail?.session_id === s.session_id ? "selected" : ""}`} onClick={() => setDetail(s)}>
+                  <div className="an-test-left">
+                    <span className="an-test-topic">{s.topic} <small>({s.assessment_type})</small></span>
+                    <span className="an-test-date">{new Date(s.created_at).toLocaleDateString()}</span>
+                  </div>
+                  <div className="an-test-right">
+                    <span className="an-test-score" style={{ color: s.percentage >= 70 ? "#22c55e" : s.percentage >= 40 ? "#f59e0b" : "#ef4444" }}>{Math.round(s.percentage)}%</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="an-split-right an-card">
+            {detail ? (
+              <div className="an-detail-content">
+                <div className="an-detail-header">
+                  <h3>{detail.topic}</h3>
+                  <span className="an-detail-date">{new Date(detail.created_at).toLocaleString()}</span>
+                </div>
+                <div className="an-ov-stat-row">
+                    <StatCard label="Score" value={detail.score} suffix={` / ${detail.max_score}`} color="#8b5cf6" />
+                    <StatCard label="Accuracy" value={Math.round(detail.percentage)} suffix="%" color="#f97316" />
+                </div>
+                <div className="an-detail-feedback-box">
+                    <div className="fb-title">Assessment Feedback</div>
+                    <p>{detail.feedback || "Good progress! Keep practicing to master this topic."}</p>
+                </div>
+              </div>
+            ) : <div className="an-empty-detail">Select a session to view results</div>}
+          </div>
+        </div>
+
+        {/* New Section: All Skills Table */}
+        <div className="an-card an-full-skills-card" style={{ gridColumn: 'span 4', marginTop: 24 }}>
+          <div className="an-card-title">📚 Skill Mastery Breakdown</div>
+          <div className="an-skills-table-wrap">
+            <table className="an-skills-table">
+              <thead>
+                <tr>
+                  <th>Skill / Topic</th>
+                  <th>Avg Proficiency</th>
+                  <th>Total Attempts</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.skills.map(s => (
+                  <tr key={s.skill}>
+                    <td><b>{s.skill}</b></td>
+                    <td>
+                      <div className="an-skill-progress-bar">
+                        <div className="an-spb-fill" style={{ width: `${s.avg_score}%`, backgroundColor: s.avg_score >= 70 ? '#22c55e' : s.avg_score >= 40 ? '#f59e0b' : '#ef4444' }} />
+                        <span>{Math.round(s.avg_score)}%</span>
+                      </div>
+                    </td>
+                    <td>{s.attempts}</td>
+                    <td>
+                      <span className={`an-status-tag ${s.avg_score >= 70 ? 'master' : s.avg_score >= 40 ? 'growing' : 'learning'}`}>
+                        {s.avg_score >= 70 ? 'Mastered' : s.avg_score >= 40 ? 'Growing' : 'Learning'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+                {data.skills.length === 0 && <tr><td colSpan="4" style={{ textAlign: 'center', padding: '24px', color: '#94a3b8' }}>No assessment data yet. Take a quiz to start tracking!</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -618,6 +691,14 @@ function InterviewScreen({ globalTopic, globalProficiency, onExit }) {
             body: JSON.stringify({ topic: ivTopic, proficiency: ivProf, history: newHistory }),
           }).then(r => r.json());
           setAnalysis(a);
+          // Persist interview session
+          await fetch(`${API}/session/save`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              userId: "anonymous", type: "interview", topic: ivTopic,
+              score: a.overall_score || 0, max_score: 100, feedback: a.summary
+            })
+          });
         } catch { setAnalysis({ summary: "Analysis unavailable.", strengths: [], improvement_areas: [], study_plan: [] }); }
         setAnalysisPending(false); setPhase("results");
       } else {
@@ -871,6 +952,14 @@ export default function App() {
     try {
       const res = await fetch(`${API}/feedback`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ topic, history: finalHistory }) }).then(r => r.json());
       setFeedback(res.feedback || "");
+      // Persist quiz session
+      await fetch(`${API}/session/save`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: "anonymous", type: "quiz", topic,
+          score, max_score: numQuestions, feedback: res.feedback || ""
+        })
+      });
     } catch { setFeedback("Could not generate feedback."); }
     setFBLoad(false);
   }
